@@ -1,0 +1,24 @@
+workflows:
+  build-delex:
+    name: Build DELEX Intel
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: latest
+    scripts:
+      - name: Instalar CMake
+        script: |
+          brew install cmake || true
+      - name: Configurar projeto
+        script: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+      - name: Compilar plugin
+        script: |
+          cmake --build build --config Release --parallel
+      - name: Empacotar artefactos
+        script: |
+          mkdir -p artifacts
+          find build -name "*.vst3" -exec cp -r {} artifacts/ \; || true
+          find build -name "*.component" -exec cp -r {} artifacts/ \; || true
+    artifacts:
+      - artifacts/**
