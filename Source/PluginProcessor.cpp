@@ -1,376 +1,317 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-//==============================================================================
-static const juce::StringArray kValidSerials {
-    "DLX-HWGQ-496R-AFHU", "DLX-G6A9-WP3S-YY2E", "DLX-XFUU-7KVB-ZZ75",
-    "DLX-F39H-593S-48BQ", "DLX-JDG5-8K8Q-H78S", "DLX-3V83-5NUT-ACK7",
-    "DLX-9ZNS-9795-CUW7", "DLX-G6S6-M58E-T9ZG", "DLX-N4K6-AFA6-FNRH",
-    "DLX-CTYK-AW9J-Q8JU", "DLX-F4LJ-V42K-N2AG", "DLX-2EDY-YBB8-WV6W",
-    "DLX-H97L-KP5X-7QE3", "DLX-CNMC-D6N8-BJPJ", "DLX-LM2T-54F2-VMYM",
-    "DLX-S794-U7MW-86HT", "DLX-GPQA-F7X4-MBYL", "DLX-YPHT-PUTJ-GSG5",
-    "DLX-LGDY-MGWT-EUWL", "DLX-SSEA-4S4A-DGRB"
-};
+using namespace delex;
 
-//==============================================================================
-const std::vector<DelexPreset>& DelexAudioProcessor::getFactoryPresets()
-{
-    static const std::vector<DelexPreset> presets = {
-        // name          time   fb    mix   spr   hicut  locut  low   mid   high  rate depth drive lofi  pp
-        { "Studio Room", 380.f, 0.45f, 0.50f, 0.50f, 8000.f, 100.f, 0.f, 0.f, 0.f, 0.3f, 0.0f, 0.1f, 0.0f, false },
-        { "Slapback",    120.f, 0.20f, 0.35f, 0.20f, 6000.f, 200.f, 0.f, 2.f, -2.f, 0.0f, 0.0f, 0.2f, 0.0f, false },
-        { "Ping Pong",   300.f, 0.55f, 0.45f, 0.80f, 9000.f, 120.f, 0.f, 0.f, 1.f, 0.4f, 0.1f, 0.1f, 0.0f, true },
-        { "Tape Echo",   420.f, 0.60f, 0.40f, 0.40f, 4500.f, 250.f, 2.f, 1.f, -4.f, 0.5f, 0.3f, 0.4f, 0.3f, false },
-        { "Dark Space",  650.f, 0.70f, 0.55f, 0.60f, 2800.f, 80.f, 3.f, -2.f, -8.f, 0.2f, 0.2f, 0.3f, 0.5f, false },
-        { "Shimmer",     500.f, 0.65f, 0.50f, 0.75f, 12000.f, 300.f, -2.f, 0.f, 4.f, 0.6f, 0.4f, 0.2f, 0.1f, true }
-    };
-    return presets;
-}
-
-void DelexAudioProcessor::applyPreset (int index)
-{
-    const auto& presets = getFactoryPresets();
-    if (index < 0 || index >= (int) presets.size())
-        return;
-
-    const auto& p = presets[(size_t) index];
-
-    auto set = [this] (const juce::String& id, float value)
-    {
-        if (auto* param = apvts.getParameter (id))
-            param->setValueNotifyingHost (apvts.getParameterRange (id).convertTo0to1 (value));
-    };
-
-    set ("time", p.time);
-    set ("feedback", p.feedback);
-    set ("mix", p.mix);
-    set ("spread", p.spread);
-    set ("hicut", p.hicut);
-    set ("locut", p.locut);
-    set ("eqLow", p.eqLow);
-    set ("eqMid", p.eqMid);
-    set ("eqHigh", p.eqHigh);
-    set ("modRate", p.modRate);
-    set ("modDepth", p.modDepth);
-    set ("drive", p.drive);
-    set ("lofi", p.lofi);
-
-    if (auto* param = apvts.getParameter ("pingpong"))
-        param->setValueNotifyingHost (p.pingpong ? 1.0f : 0.0f);
-}
-
-//==============================================================================
-juce::AudioProcessorValueTreeState::ParameterLayout DelexAudioProcessor::createParameterLayout()
-{
-    std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
-
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("time", "Time", juce::NormalisableRange<float> (10.0f, 2000.0f, 1.0f), 380.0f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("feedback", "Feedback", juce::NormalisableRange<float> (0.0f, 0.95f, 0.01f), 0.45f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("mix", "Mix", juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.5f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("spread", "Spread", juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.5f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("hicut", "Hi Cut", juce::NormalisableRange<float> (500.0f, 18000.0f, 1.0f, 0.3f), 8000.0f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("locut", "Lo Cut", juce::NormalisableRange<float> (20.0f, 2000.0f, 1.0f, 0.3f), 100.0f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("eqLow", "EQ Low", juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("eqMid", "EQ Mid", juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("eqHigh", "EQ High", juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("modRate", "Mod Rate", juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("modDepth", "Mod Depth", juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("modWave", "Mod Wave", false));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("drive", "Drive", juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("lofi", "Lofi", juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("pingpong", "Ping Pong", false));
-
-    return { params.begin(), params.end() };
-}
-
-//==============================================================================
-DelexAudioProcessor::DelexAudioProcessor()
+DelexProcessor::DelexProcessor()
     : AudioProcessor (BusesProperties()
-                        .withInput ("Input", juce::AudioChannelSet::stereo(), true)
+                        .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
                         .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "Parameters", createParameterLayout())
+      apvts (*this, &undo, "DELEX", createLayout())
 {
+    juce::PropertiesFile::Options o;
+    o.applicationName = "DELEX";
+    o.folderName = "Piradex";
+    o.filenameSuffix = "settings";
+    o.osxLibrarySubFolder = "Application Support";
+    settings = std::make_unique<juce::PropertiesFile> (o);
 }
 
-DelexAudioProcessor::~DelexAudioProcessor() {}
-
-//==============================================================================
-void DelexAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+// ---------------------------------------------------------------------------- áudio
+void DelexProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
-
-    juce::dsp::ProcessSpec spec;
-    spec.sampleRate = sampleRate;
-    spec.maximumBlockSize = static_cast<juce::uint32> (samplesPerBlock);
-    spec.numChannels = 1;
-
-    delayLineL.prepare (spec);
-    delayLineR.prepare (spec);
-    delayLineL.reset();
-    delayLineR.reset();
-
-    juce::dsp::ProcessSpec stereoSpec;
-    stereoSpec.sampleRate = sampleRate;
-    stereoSpec.maximumBlockSize = static_cast<juce::uint32> (samplesPerBlock);
-    stereoSpec.numChannels = 2;
-
-    hiCutFilter.prepare (stereoSpec);
-    hiCutFilter.setType (juce::dsp::StateVariableTPTFilterType::lowpass);
-    loCutFilter.prepare (stereoSpec);
-    loCutFilter.setType (juce::dsp::StateVariableTPTFilterType::highpass);
-
-    juce::dsp::ProcessSpec monoSpec;
-    monoSpec.sampleRate = sampleRate;
-    monoSpec.maximumBlockSize = static_cast<juce::uint32> (samplesPerBlock);
-    monoSpec.numChannels = 1;
-
-    eqLowL.prepare (monoSpec);  eqLowR.prepare (monoSpec);
-    eqMidL.prepare (monoSpec);  eqMidR.prepare (monoSpec);
-    eqHighL.prepare (monoSpec); eqHighR.prepare (monoSpec);
-
-    lfoPhase = 0.0f;
-    updateEQ();
+    (void) divisions(); (void) modDivisions();   // tabelas estáticas criadas fora da thread de áudio
+    engine.prepare (sampleRate, samplesPerBlock);
+    work.setSize (2, juce::jmax (1, samplesPerBlock), false, true, false);
+    scopeFifo.reset();
 }
 
-void DelexAudioProcessor::releaseResources() {}
-
-void DelexAudioProcessor::updateEQ()
+void DelexProcessor::reset()
 {
-    float low  = apvts.getRawParameterValue ("eqLow")->load();
-    float mid  = apvts.getRawParameterValue ("eqMid")->load();
-    float high = apvts.getRawParameterValue ("eqHigh")->load();
-
-    auto lowCoeffs  = juce::dsp::IIR::Coefficients<float>::makeLowShelf  (currentSampleRate, 200.0f, 0.7f, juce::Decibels::decibelsToGain (low));
-    auto midCoeffs  = juce::dsp::IIR::Coefficients<float>::makePeakFilter (currentSampleRate, 1000.0f, 0.7f, juce::Decibels::decibelsToGain (mid));
-    auto highCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighShelf (currentSampleRate, 5000.0f, 0.7f, juce::Decibels::decibelsToGain (high));
-
-    *eqLowL.coefficients  = *lowCoeffs;   *eqLowR.coefficients  = *lowCoeffs;
-    *eqMidL.coefficients  = *midCoeffs;   *eqMidR.coefficients  = *midCoeffs;
-    *eqHighL.coefficients = *highCoeffs;  *eqHighR.coefficients = *highCoeffs;
+    engine.reset();
 }
 
-//==============================================================================
-// Saturação analógica (soft clipping com tanh)
-float DelexAudioProcessor::saturate (float x, float drive)
+bool DelexProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    if (drive <= 0.0001f) return x;
-    float amount = 1.0f + drive * 8.0f;
-    return std::tanh (x * amount) / std::tanh (amount);
+    const auto in = layouts.getMainInputChannelSet(), out = layouts.getMainOutputChannelSet();
+    if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo()) return false;
+    if (in != juce::AudioChannelSet::mono() && in != juce::AudioChannelSet::stereo()) return false;
+    return in.size() <= out.size();   // mono→mono, mono→estéreo, estéreo→estéreo
 }
 
-// Lofi: redução de sample rate (sample & hold) + bit crush leve
-float DelexAudioProcessor::applyLofi (float x, float amount, int channel)
-{
-    if (amount <= 0.0001f) return x;
+void DelexProcessor::processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&)  { processAny (b); }
+void DelexProcessor::processBlock (juce::AudioBuffer<double>& b, juce::MidiBuffer&) { processAny (b); }
 
-    int holdSamples = 1 + static_cast<int> (amount * 16.0f);
-
-    float& hold = (channel == 0) ? lofiHoldL : lofiHoldR;
-    int& counter = (channel == 0) ? lofiCounterL : lofiCounterR;
-
-    if (counter <= 0)
-    {
-        hold = x;
-        counter = holdSamples;
-    }
-    counter--;
-
-    // Bit crush leve
-    float bits = 16.0f - amount * 10.0f;
-    float step = std::pow (2.0f, bits);
-    float crushed = std::round (hold * step) / step;
-
-    return crushed * amount + x * (1.0f - amount);
-}
-
-//==============================================================================
-void DelexAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+template <typename Sample>
+void DelexProcessor::processAny (juce::AudioBuffer<Sample>& buffer)
 {
     juce::ScopedNoDenormals noDenormals;
+    const int n = buffer.getNumSamples();
+    if (n <= 0) return;
+    const int numIn = getTotalNumInputChannels(), numOut = getTotalNumOutputChannels();
 
-    auto numSamples = buffer.getNumSamples();
-    auto numChannels = buffer.getNumChannels();
+    if (work.getNumSamples() < n) work.setSize (2, n, false, false, true);
+    float* L = work.getWritePointer (0);
+    float* R = work.getWritePointer (1);
 
-    for (int i = getTotalNumInputChannels(); i < getTotalNumOutputChannels(); ++i)
-        buffer.clear (i, 0, numSamples);
-
-    if (numChannels < 2) return;
-
-    float timeMs = apvts.getRawParameterValue ("time")->load();
-    float feedback = apvts.getRawParameterValue ("feedback")->load();
-    float mix = apvts.getRawParameterValue ("mix")->load();
-    float spread = apvts.getRawParameterValue ("spread")->load();
-    float hicut = apvts.getRawParameterValue ("hicut")->load();
-    float locut = apvts.getRawParameterValue ("locut")->load();
-    float modRate = apvts.getRawParameterValue ("modRate")->load();
-    float modDepth = apvts.getRawParameterValue ("modDepth")->load();
-    int   modWave = static_cast<int> (apvts.getRawParameterValue ("modWave")->load());
-    float drive = apvts.getRawParameterValue ("drive")->load();
-    float lofi = apvts.getRawParameterValue ("lofi")->load();
-    bool  pingpong = apvts.getRawParameterValue ("pingpong")->load() > 0.5f;
-
-    updateEQ();
-
-    float baseDelayL = (timeMs / 1000.0f) * static_cast<float> (currentSampleRate);
-    float baseDelayR = baseDelayL * (1.0f + spread * 0.3f);
-
-    // LFO de modulação: 0.05Hz a ~6Hz
-    float lfoFreq = 0.05f + modRate * 6.0f;
-    float lfoInc = lfoFreq / static_cast<float> (currentSampleRate);
-    float modSamples = modDepth * 0.005f * static_cast<float> (currentSampleRate); // até 5ms de variação
-
-    hiCutFilter.setCutoffFrequency (hicut);
-    loCutFilter.setCutoffFrequency (locut);
-
-    auto* left = buffer.getWritePointer (0);
-    auto* right = buffer.getWritePointer (1);
-
-    float peakL = 0.0f;
-    float peakR = 0.0f;
-
-    for (int n = 0; n < numSamples; ++n)
+    const Sample* inL = numIn > 0 ? buffer.getReadPointer (0) : nullptr;
+    const Sample* inR = numIn > 1 ? buffer.getReadPointer (1) : inL;
+    float pkIn[2] { 0, 0 };
+    for (int i = 0; i < n; ++i)
     {
-        // LFO
-        float lfoValue;
-        if (modWave == 0)
-            lfoValue = std::sin (lfoPhase * juce::MathConstants<float>::twoPi);
-        else
-            lfoValue = 2.0f * std::abs (2.0f * (lfoPhase - std::floor (lfoPhase + 0.5f))) - 1.0f;
+        L[i] = inL != nullptr ? (float) inL[i] : 0.0f;
+        R[i] = inR != nullptr ? (float) inR[i] : 0.0f;
+        pkIn[0] = juce::jmax (pkIn[0], std::abs (L[i]));
+        pkIn[1] = juce::jmax (pkIn[1], std::abs (R[i]));
+    }
 
-        lfoPhase += lfoInc;
-        if (lfoPhase >= 1.0f) lfoPhase -= 1.0f;
+    // tempo do host
+    double bpm = hostBpm.load();
+    bool hasBpm = false;
+    if (auto* ph = getPlayHead())
+        if (auto pos = ph->getPosition())
+            if (auto hb = pos->getBpm()) { bpm = *hb; hasBpm = true; }
+    if (! hasBpm && tapBpm > 0.0) bpm = tapBpm;
+    hostBpm = bpm; hostHasBpm = hasBpm;
 
-        float dL = juce::jlimit (1.0f, 191000.0f, baseDelayL + lfoValue * modSamples);
-        float dR = juce::jlimit (1.0f, 191000.0f, baseDelayR + lfoValue * modSamples);
+    const Values v = raw.load();
+    engine.setParams (toEngine (v, bpm, getSampleRate()));
+    engine.process (L, R, n);
 
-        float dryL = left[n];
-        float dryR = right[n];
+    // medidores
+    float pkOut[2] { 0, 0 };
+    float xy = 0, xx = 0, yy = 0;
+    for (int i = 0; i < n; ++i)
+    {
+        pkOut[0] = juce::jmax (pkOut[0], std::abs (L[i]));
+        pkOut[1] = juce::jmax (pkOut[1], std::abs (R[i]));
+        xy += L[i] * R[i]; xx += L[i] * L[i]; yy += R[i] * R[i];
+    }
+    const float decay = std::exp (-(float) n / (0.25f * (float) getSampleRate()));
+    corrXY = corrXY * decay + xy; corrXX = corrXX * decay + xx; corrYY = corrYY * decay + yy;
+    const float den = std::sqrt (corrXX * corrYY);
+    correlation = den > 1.0e-9f ? juce::jlimit (-1.0f, 1.0f, corrXY / den) : 0.0f;
+    for (int c = 0; c < 2; ++c)
+    {
+        inPeak[c] = juce::jmax (pkIn[c], inPeak[c].load() * 0.92f);
+        outPeak[c] = juce::jmax (pkOut[c], outPeak[c].load() * 0.92f);
+    }
+    duckGr = engine.duckReductionDb();
+    loopLimit = engine.loopLimiterDb();
+    pushScope (L, R, n);
 
-        float delayedL = delayLineL.popSample (0, dL);
-        float delayedR = delayLineR.popSample (0, dR);
+    // saída
+    if (numOut == 1)
+    {
+        auto* o = buffer.getWritePointer (0);
+        for (int i = 0; i < n; ++i) o[i] = (Sample) (0.5f * (L[i] + R[i]));
+    }
+    else if (numOut >= 2)
+    {
+        auto* oL = buffer.getWritePointer (0);
+        auto* oR = buffer.getWritePointer (1);
+        for (int i = 0; i < n; ++i) { oL[i] = (Sample) L[i]; oR[i] = (Sample) R[i]; }
+        for (int c = 2; c < buffer.getNumChannels(); ++c) buffer.clear (c, 0, n);
+    }
+}
 
-        // Filtros
-        float fL = hiCutFilter.processSample (0, delayedL);
-        fL = loCutFilter.processSample (0, fL);
-        float fR = hiCutFilter.processSample (1, delayedR);
-        fR = loCutFilter.processSample (1, fR);
+void DelexProcessor::pushScope (const float* l, const float* r, int n)
+{
+    const int want = n / 2;
+    if (want <= 0 || scopeFifo.getFreeSpace() < want) return;
+    int s1, n1, s2, n2;
+    scopeFifo.prepareToWrite (want, s1, n1, s2, n2);
+    int k = 0;
+    for (int i = 0; i < n1; ++i, k += 2) { scopeData[(size_t) (s1 + i) * 2] = l[k]; scopeData[(size_t) (s1 + i) * 2 + 1] = r[k]; }
+    for (int i = 0; i < n2; ++i, k += 2) { scopeData[(size_t) (s2 + i) * 2] = l[k]; scopeData[(size_t) (s2 + i) * 2 + 1] = r[k]; }
+    scopeFifo.finishedWrite (n1 + n2);
+}
 
-        // EQ
-        fL = eqLowL.processSample (fL); fL = eqMidL.processSample (fL); fL = eqHighL.processSample (fL);
-        fR = eqLowR.processSample (fR); fR = eqMidR.processSample (fR); fR = eqHighR.processSample (fR);
+// ---------------------------------------------------------------------------- presets
+void DelexProcessor::setCurrentProgram (int index)
+{
+    if (juce::isPositiveAndBelow (index, getNumPrograms())) loadFactoryPreset (index);
+}
 
-        // Analog: saturação + lofi
-        fL = saturate (fL, drive);
-        fR = saturate (fR, drive);
-        fL = applyLofi (fL, lofi, 0);
-        fR = applyLofi (fR, lofi, 1);
+const juce::String DelexProcessor::getProgramName (int index)
+{
+    const auto& p = factoryPresets();
+    return juce::isPositiveAndBelow (index, (int) p.size()) ? juce::String::fromUTF8 (p[(size_t) index].name) : juce::String();
+}
 
-        if (pingpong)
+void DelexProcessor::loadFactoryPreset (int index)
+{
+    const auto& p = factoryPresets();
+    if (! juce::isPositiveAndBelow (index, (int) p.size())) return;
+    undo.beginNewTransaction();
+    applyData (apvts, p[(size_t) index].data, false);
+    currentPreset = index;
+    presetName = juce::String::fromUTF8 (p[(size_t) index].name);
+    updateHostDisplay (ChangeDetails().withProgramChanged (true));
+}
+
+void DelexProcessor::applyStyle (int index)
+{
+    const auto& s = styles();
+    if (! juce::isPositiveAndBelow (index, (int) s.size())) return;
+    undo.beginNewTransaction();
+    applyData (apvts, s[(size_t) index].data, true);
+}
+
+juce::File DelexProcessor::userPresetFolder() const
+{
+   #if JUCE_MAC
+    auto base = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("Application Support");
+   #else
+    auto base = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
+   #endif
+    return base.getChildFile ("Piradex").getChildFile ("DELEX").getChildFile ("Presets");
+}
+
+bool DelexProcessor::saveUserPreset (const juce::String& name)
+{
+    const auto clean = juce::File::createLegalFileName (name.trim());
+    if (clean.isEmpty()) return false;
+    auto dir = userPresetFolder();
+    if (! dir.createDirectory()) return false;
+    auto st = apvts.copyState();
+    st.setProperty ("presetName", name.trim(), nullptr);
+    st.setProperty ("version", kStateVersion, nullptr);
+    if (auto xml = st.createXml())
+        if (xml->writeTo (dir.getChildFile (clean + ".dlxpreset")))
         {
-            delayLineL.pushSample (0, dryL + fR * feedback);
-            delayLineR.pushSample (0, dryR + fL * feedback);
+            presetName = name.trim();
+            currentPreset = -1;
+            return true;
         }
-        else
-        {
-            delayLineL.pushSample (0, dryL + fL * feedback);
-            delayLineR.pushSample (0, dryR + fR * feedback);
-        }
-
-        left[n] = dryL * (1.0f - mix) + fL * mix;
-        right[n] = dryR * (1.0f - mix) + fR * mix;
-
-        peakL = juce::jmax (peakL, std::abs (left[n]));
-        peakR = juce::jmax (peakR, std::abs (right[n]));
-    }
-
-    outputLevelL.store (peakL);
-    outputLevelR.store (peakR);
-}
-
-//==============================================================================
-// Tap tempo
-void DelexAudioProcessor::registerTap()
-{
-    auto now = juce::Time::getMillisecondCounter();
-
-    if (lastTapTime > 0)
-    {
-        auto interval = now - lastTapTime;
-        if (interval > 100 && interval < 3000)
-        {
-            float bpm = 60000.0f / static_cast<float> (interval);
-            currentBPM.store (bpm);
-
-            // Converte para ms (uma batida) e define o time
-            float ms = static_cast<float> (interval);
-            ms = juce::jlimit (10.0f, 2000.0f, ms);
-            if (auto* param = apvts.getParameter ("time"))
-                param->setValueNotifyingHost (apvts.getParameterRange ("time").convertTo0to1 (ms));
-        }
-    }
-    lastTapTime = now;
-}
-
-//==============================================================================
-bool DelexAudioProcessor::isValidSerial (const juce::String& serial)
-{
-    return kValidSerials.contains (serial.trim().toUpperCase());
-}
-
-juce::File DelexAudioProcessor::getLicenseFile() const
-{
-    auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                 .getChildFile ("Piradex").getChildFile ("Delex");
-    dir.createDirectory();
-    return dir.getChildFile ("license.dat");
-}
-
-bool DelexAudioProcessor::isUnlocked()
-{
-    if (unlockChecked) return unlockedState;
-    auto file = getLicenseFile();
-    if (file.existsAsFile())
-    {
-        auto stored = file.loadFileAsString().trim();
-        unlockedState = isValidSerial (stored);
-    }
-    unlockChecked = true;
-    return unlockedState;
-}
-
-bool DelexAudioProcessor::tryUnlock (const juce::String& serial)
-{
-    if (isValidSerial (serial))
-    {
-        getLicenseFile().replaceWithText (serial.trim().toUpperCase());
-        unlockedState = true;
-        unlockChecked = true;
-        return true;
-    }
     return false;
 }
 
-//==============================================================================
-void DelexAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
+void DelexProcessor::loadUserPreset (const juce::File& f)
 {
-    auto state = apvts.copyState();
-    std::unique_ptr<juce::XmlElement> xml (state.createXml());
-    copyXmlToBinary (*xml, destData);
+    if (auto xml = juce::XmlDocument::parse (f))
+    {
+        auto st = juce::ValueTree::fromXml (*xml);
+        if (st.hasType (apvts.state.getType()))
+        {
+            undo.beginNewTransaction();
+            for (auto* prm : getParameters())
+                if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (prm))
+                {
+                    if (r->getParameterID() == id::bypass) continue;
+                    auto child = st.getChildWithProperty ("id", r->getParameterID());
+                    const float val = child.isValid() ? (float) child.getProperty ("value") : r->convertFrom0to1 (r->getDefaultValue());
+                    r->beginChangeGesture(); r->setValueNotifyingHost (r->convertTo0to1 (val)); r->endChangeGesture();
+                }
+            presetName = st.getProperty ("presetName", f.getFileNameWithoutExtension()).toString();
+            currentPreset = -1;
+        }
+    }
 }
 
-void DelexAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
+bool DelexProcessor::isFavourite (const juce::String& name) const
 {
-    std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
-    if (xmlState != nullptr && xmlState->hasTagName (apvts.state.getType()))
-        apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
+    return juce::StringArray::fromLines (settings->getValue ("favourites")).contains (name);
 }
 
-juce::AudioProcessorEditor* DelexAudioProcessor::createEditor()
+void DelexProcessor::toggleFavourite (const juce::String& name)
 {
-    return new DelexAudioProcessorEditor (*this);
+    auto fav = juce::StringArray::fromLines (settings->getValue ("favourites"));
+    fav.removeEmptyStrings();
+    if (fav.contains (name)) fav.removeString (name); else fav.add (name);
+    settings->setValue ("favourites", fav.joinIntoString ("\n"));
+    settings->saveIfNeeded();
 }
 
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+// ---------------------------------------------------------------------------- A/B
+void DelexProcessor::selectSlot (int slot)
 {
-    return new DelexAudioProcessor();
+    slot = juce::jlimit (0, 1, slot);
+    if (slot == slotIndex) return;
+    slots[slotIndex] = apvts.copyState();
+    if (slots[slot].isValid()) apvts.replaceState (slots[slot].createCopy());
+    else slots[slot] = apvts.copyState();
+    slotIndex = slot;
 }
+
+void DelexProcessor::copyToOtherSlot()
+{
+    slots[1 - slotIndex] = apvts.copyState();
+}
+
+// ---------------------------------------------------------------------------- tap tempo
+void DelexProcessor::tap()
+{
+    const auto now = (juce::int64) juce::Time::getMillisecondCounterHiRes();
+    const double dt = (double) (now - lastTapMs);
+    lastTapMs = now;
+    if (dt > 2000.0 || dt < 100.0) { tapIntervals.clear(); return; }
+    tapIntervals.add (dt);
+    while (tapIntervals.size() > 4) tapIntervals.remove (0);
+    double avg = 0; for (auto x : tapIntervals) avg += x; avg /= tapIntervals.size();
+    tapBpm = 60000.0 / avg;
+
+    // define o tempo em ms (sem sync) = semínima batida × divisão actual
+    const auto& d = divisions();
+    const int di = juce::jlimit (0, (int) d.size() - 1, (int) std::lround (raw.load().div));
+    if (auto* s = apvts.getParameter (id::sync)) { s->beginChangeGesture(); s->setValueNotifyingHost (0.0f); s->endChangeGesture(); }
+    if (auto* t = apvts.getParameter (id::time))
+    {
+        t->beginChangeGesture();
+        t->setValueNotifyingHost (t->convertTo0to1 ((float) juce::jlimit (1.0, 8000.0, avg * d[(size_t) di].quarters)));
+        t->endChangeGesture();
+    }
+}
+
+// ---------------------------------------------------------------------------- estado
+void DelexProcessor::getStateInformation (juce::MemoryBlock& destData)
+{
+    juce::ValueTree root ("DELEX_STATE");
+    root.setProperty ("version", kStateVersion, nullptr);
+    root.setProperty ("preset", currentPreset, nullptr);
+    root.setProperty ("presetName", presetName, nullptr);
+    root.setProperty ("uiScale", uiScale, nullptr);
+    root.setProperty ("advanced", advancedView, nullptr);
+    root.setProperty ("tab", advancedTab, nullptr);
+    root.setProperty ("slot", slotIndex, nullptr);
+    root.appendChild (apvts.copyState(), nullptr);
+    for (int s = 0; s < 2; ++s)
+        if (slots[s].isValid() && s != slotIndex)
+        {
+            juce::ValueTree holder ("SLOT"); holder.setProperty ("index", s, nullptr);
+            holder.appendChild (slots[s].createCopy(), nullptr);
+            root.appendChild (holder, nullptr);
+        }
+    if (auto xml = root.createXml()) copyXmlToBinary (*xml, destData);
+}
+
+void DelexProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    auto xml = getXmlFromBinary (data, sizeInBytes);
+    if (xml == nullptr) return;
+    auto root = juce::ValueTree::fromXml (*xml);
+    if (root.hasType ("DELEX_STATE"))
+    {
+        // versão 2: formato actual (futuras migrações entram aqui)
+        auto params = root.getChildWithName (apvts.state.getType());
+        if (params.isValid()) apvts.replaceState (params);
+        currentPreset = root.getProperty ("preset", 0);
+        presetName = root.getProperty ("presetName", "Init").toString();
+        uiScale = juce::jlimit (0.75f, 2.0f, (float) root.getProperty ("uiScale", 1.0f));
+        advancedView = root.getProperty ("advanced", false);
+        advancedTab = root.getProperty ("tab", 2);
+        slotIndex = juce::jlimit (0, 1, (int) root.getProperty ("slot", 0));
+        slots[0] = slots[1] = {};
+        for (auto c : root)
+            if (c.hasType ("SLOT") && c.getNumChildren() > 0)
+                slots[juce::jlimit (0, 1, (int) c.getProperty ("index"))] = c.getChild (0).createCopy();
+    }
+    else if (root.hasType (apvts.state.getType()))
+        apvts.replaceState (root);   // estado simples (compatibilidade)
+    undo.clearUndoHistory();
+}
+
+juce::AudioProcessorEditor* DelexProcessor::createEditor() { return new DelexEditor (*this); }
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new DelexProcessor(); }

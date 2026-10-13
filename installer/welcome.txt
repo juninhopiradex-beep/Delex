@@ -1,0 +1,11 @@
+DELEX by Piradex 2.0.0
+
+Delay espacial estéreo: ecos que rodam no campo estéreo, feedback moldável
+(EQ, dispersão, difusão, fita, digital grit), ducking e freeze.
+
+Instala:
+  • VST3  → /Library/Audio/Plug-Ins/VST3
+  • AU    → /Library/Audio/Plug-Ins/Components
+
+Compatível com macOS 10.13 ou superior — o mesmo instalador serve
+Macs Intel antigos (ex.: MacBook Pro 2013 com Catalina) e Macs Apple Silicon (M1/M2/M3/M4).
