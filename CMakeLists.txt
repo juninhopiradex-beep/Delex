@@ -58,6 +58,11 @@ target_sources(Delex PRIVATE
 
 target_include_directories(Delex PRIVATE Source)
 
+# Fontes em UTF-8 (acentos nas etiquetas) também no Visual Studio
+if(MSVC)
+    target_compile_options(Delex PRIVATE /utf-8 /bigobj)
+endif()
+
 target_compile_definitions(Delex PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0

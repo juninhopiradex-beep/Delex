@@ -111,7 +111,15 @@ jobs:
         run: cmake -B build -G "Visual Studio 17 2022" -A x64
 
       - name: Compilar VST3
-        run: cmake --build build --config Release --target Delex_VST3 --parallel 4
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --target Delex_VST3 --parallel 4 -- /nologo /verbosity:minimal 2>&1 | Tee-Object -FilePath build-win.log
+          if ($LASTEXITCODE -ne 0) {
+            # erros como anotações (visíveis no resumo da execução)
+            Select-String -Path build-win.log -Pattern "error C|error LNK|: error|fatal error" | Select-Object -ExpandProperty Line -Unique | Select-Object -First 10 |
+              ForEach-Object { Write-Output ("::error::" + ($_ -replace '^.*\\Source\\','Source/')) }
+            exit 1
+          }
 
       - name: Verificar binário x64 e dependências
         shell: pwsh
