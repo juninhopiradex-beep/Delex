@@ -688,7 +688,8 @@ private:
     void openBrowser()
     {
         browser = std::make_unique<PresetBrowser> (proc);
-        browser->onClose = [this] { juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<DelexUI> (this)] { if (sp != nullptr) { sp->browser.reset(); sp->refreshHeader(); } }); };
+        juce::Component::SafePointer<DelexUI> safe (this);
+        browser->onClose = [safe] { juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->browser.reset(); safe->refreshHeader(); } }); };
         browser->onLoaded = [this] { styleSel = -1; refreshStyles(); refreshHeader(); };
         addAndMakeVisible (*browser);
         browser->setBounds (getLocalBounds());
