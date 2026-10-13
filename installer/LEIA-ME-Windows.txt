@@ -7,6 +7,7 @@ Depois de instalar:
   1. Abra o DAW (Ableton, FL Studio, Cubase, Reaper, Studio One, Bitwig...).
   2. Peça ao DAW para procurar plugins de novo, se não aparecer logo.
   3. Procure "DELEX by Piradex" (fabricante: Piradex).
+  4. Na primeira vez que abrir o plugin, introduza a senha.
 
 Se o Windows mostrar "O Windows protegeu o seu PC":
   clique em "Mais informações" → "Executar mesmo assim".

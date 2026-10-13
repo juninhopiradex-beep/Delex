@@ -9,3 +9,4 @@ Instala:
 
 Compatível com macOS 10.13 ou superior — o mesmo instalador serve
 Macs Intel antigos (ex.: MacBook Pro 2013 com Catalina) e Macs Apple Silicon (M1/M2/M3/M4).
+Ao abrir o plugin pela primeira vez é pedida a senha.

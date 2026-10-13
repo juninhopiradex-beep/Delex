@@ -10,6 +10,8 @@ O DELEX é um delay estéreo espacial: cada repetição pode rodar no campo est�
 
 No DAW procura **DELEX by Piradex** (fabricante Piradex). Pode coexistir com o Delex v1.
 
+**Senha** — na primeira vez o plugin pede uma senha (as senhas beta são válidas até 31/12/2026). Com "Lembrar neste computador" ligado não volta a pedir. Enquanto não houver senha o plugin deixa passar o áudio sem alterações, para não estragar a sessão. Em UTILITIES › SOBRE vês o estado da licença e podes **TERMINAR SESSÃO**.
+
 ## 2. Vista SIMPLE
 
 ![SIMPLE](ui_simple.png)

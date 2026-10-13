@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "Params.h"
 #include "Presets.h"
+#include "License.h"
 
 class DelexProcessor : public juce::AudioProcessor
 {

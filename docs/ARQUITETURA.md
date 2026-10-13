@@ -9,6 +9,7 @@
 | `Source/Presets.h` | 61 presets de fábrica e 9 estilos, em formato `id=valor;…` legível. |
 | `Source/PluginProcessor.*` | Ponte JUCE: buses, BPM do host, medidores, estado, presets, A/B, tap. |
 | `Source/Look.h`, `Widgets.h`, `PresetBrowser.h`, `PluginEditor.*` | Interface (LookAndFeel próprio, knobs, ECHO FIELD, goniómetro, EQ interactivo, browser). |
+| `Source/License.*`, `Source/Login.h` | Acesso por senha offline: só salt + hash PBKDF2-HMAC-SHA256 (60 000 iterações) no binário; verificação numa thread de fundo; token por computador. Novas senhas beta: `python3 tools/nova_senha_beta.py AAAA-MM-DD`. |
 | `tests/test_core.cpp` | 22 verificações numéricas do motor. |
 | `tests/test_plugin.cpp` | Plugin real: presets, estado, A/B, layouts, precisão dupla, capturas da interface, matriz de parâmetros. |
 
@@ -65,12 +66,11 @@ CI (GitHub Actions): testes do motor, build universal arm64 + x86_64 com macOS m
 - Ordem do loop escolhida entre 4 combinações (não arrastável livremente).
 - Sem AAX; sem assinatura/notarização Apple paga (instalação pede "Abrir" na primeira vez).
 - Bloqueio de parâmetros entre presets e hiss de fita ainda não implementados.
-- Sem protecção por licença nesta beta.
 
 ## 6. Roadmap
 
 1. Sidechain externo no ducker (bus auxiliar VST3/AU).
 2. Ordem do loop arrastável e bloqueio de parâmetros.
-3. Licença offline (como no ANALYSER) e notarização Apple.
+3. Notarização Apple e licenças por cliente (ligadas à loja).
 4. Hiss de fita opcional e modo de oversampling ×2 para o caminho molhado.
 5. Standalone para teste rápido.

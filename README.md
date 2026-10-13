@@ -13,6 +13,10 @@ Delay estéreo espacial em VST3 e AU, para **macOS 10.13+ (Intel e Apple Silicon
 - **Vista SIMPLE** com 6 controlos (TIME, FEEDBACK, SPACE, TONE, CHARACTER, MIX) e **vista ADVANCED** com 6 abas.
 - **61 presets** de fábrica (Vocals, Afro House, Kizomba, Trap, Drums, Guitar, Synth, Ambient, Lo-Fi, Dub, Transition, Master FX), pesquisa, favoritos, presets do utilizador, A/B, desfazer/refazer, interface 75–200 %.
 
+## Senha
+
+Ao abrir pela primeira vez o plugin pede uma senha (master ou beta). As senhas **não** estão no código — só o seu hash PBKDF2. Para criar mais senhas beta: `python3 tools/nova_senha_beta.py 2027-03-31`, colar a linha gerada em `kKeys` (`Source/License.cpp`) e fazer push.
+
 ## Descarregar
 
 Página **Releases** deste repositório → `v2.0.0-beta`:

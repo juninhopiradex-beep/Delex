@@ -54,7 +54,8 @@ juce_add_binary_data(DelexAssets SOURCES
 
 target_sources(Delex PRIVATE
     Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp)
+    Source/PluginEditor.cpp
+    Source/License.cpp)
 
 target_include_directories(Delex PRIVATE Source)
 
@@ -73,6 +74,7 @@ target_link_libraries(Delex
     PRIVATE
         DelexAssets
         juce::juce_audio_utils
+        juce::juce_cryptography
         juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags
@@ -85,7 +87,7 @@ if(DLX_BUILD_TESTS)
     add_executable(delex_core_test tests/test_core.cpp)
     target_include_directories(delex_core_test PRIVATE Source)
 
-    target_compile_definitions(Delex PUBLIC JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_definitions(Delex PUBLIC JUCE_MODAL_LOOPS_PERMITTED=1 DLX_ALLOW_TEST_UNLOCK=1)
     add_executable(delex_plugin_test tests/test_plugin.cpp)
     target_include_directories(delex_plugin_test PRIVATE Source $<TARGET_PROPERTY:Delex,INCLUDE_DIRECTORIES>)
     target_compile_definitions(delex_plugin_test PRIVATE $<TARGET_PROPERTY:Delex,COMPILE_DEFINITIONS>)

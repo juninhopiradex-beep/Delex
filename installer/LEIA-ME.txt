@@ -11,6 +11,9 @@ DELEX by Piradex — instalação (macOS 10.13 ou superior, Intel e Apple Silico
    Se não aparecer, peça ao DAW para procurar plugins de novo
    (Logic: Gestor de Plug-ins → Restaurar e voltar a analisar).
 
+4) Na primeira vez que abrir o plugin, introduza a senha
+   (com "Lembrar neste computador" ligado não volta a pedir).
+
 Instalação manual (sem o .pkg): copie o conteúdo da pasta "Plugins" para
   /Library/Audio/Plug-Ins/VST3 e /Library/Audio/Plug-Ins/Components
 e no Terminal:

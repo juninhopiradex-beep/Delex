@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PresetBrowser.h"
+#include "Login.h"
 
 namespace delex::ui { class DelexUI; }
 

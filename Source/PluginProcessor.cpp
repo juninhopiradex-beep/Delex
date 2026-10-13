@@ -15,6 +15,7 @@ DelexProcessor::DelexProcessor()
     o.filenameSuffix = "settings";
     o.osxLibrarySubFolder = "Application Support";
     settings = std::make_unique<juce::PropertiesFile> (o);
+    lic::License::get();   // carrega o estado da licença na thread de mensagens
 }
 
 // ---------------------------------------------------------------------------- áudio
@@ -64,6 +65,18 @@ void DelexProcessor::processAny (juce::AudioBuffer<Sample>& buffer)
         R[i] = inR != nullptr ? (float) inR[i] : 0.0f;
         pkIn[0] = juce::jmax (pkIn[0], std::abs (L[i]));
         pkIn[1] = juce::jmax (pkIn[1], std::abs (R[i]));
+    }
+
+    // sem sessão iniciada: o plugin é transparente (não estraga a sessão do DAW)
+    if (! lic::License::get().isUnlocked())
+    {
+        for (int c = 0; c < numOut; ++c)
+        {
+            auto* o = buffer.getWritePointer (c);
+            const float* src = (c == 0 || numOut == 1) ? L : R;
+            for (int i = 0; i < n; ++i) o[i] = (Sample) (numOut == 1 ? 0.5f * (L[i] + R[i]) : src[i]);
+        }
+        return;
     }
 
     // tempo do host

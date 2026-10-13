@@ -77,6 +77,8 @@ public:
         buildSimple();
         buildBottom();
         buildAdvanced();
+        login.onUnlocked = [this] { login.setVisible (false); repaint(); };
+        addChildComponent (login);
         setSize (DelexEditor::kW, DelexEditor::kH);
         setView (proc.advancedView);
         selectTab (proc.advancedTab);
@@ -110,7 +112,7 @@ public:
 
     void paintOverChildren (juce::Graphics& g) override
     {
-        if (simpleView.isVisible() && browser == nullptr)
+        if (simpleView.isVisible() && browser == nullptr && ! login.isVisible())
         {
             g.setColour (col::line.withAlpha (0.7f));
             g.drawHorizontalLine (316, 0, (float) getWidth());
@@ -146,6 +148,7 @@ public:
         mixSlider.setBounds (mixValue.getX() - 104, fy, 100, 32);
 
         if (browser != nullptr) browser->setBounds (getLocalBounds());
+        login.setBounds (getLocalBounds());
     }
 
 private:
@@ -623,6 +626,10 @@ private:
             b->onClick = [this, sc] { if (onScale) onScale (sc); };
             p.addAndMakeVisible (b);
         }
+        auto& logout = p.add (std::make_unique<juce::TextButton> (u8 ("TERMINAR SESSÃO")));
+        logout.getProperties().set ("fontH", 11.0f);
+        logout.setTooltip (u8 ("Esquece a senha neste computador (pede-a de novo ao abrir)"));
+        logout.onClick = [] { lic::License::get().lock(); };
         p.extraPaint = [&p] (juce::Graphics& g)
         {
             auto r = p.sections[3].r.toFloat().reduced (14.0f).withTrimmedTop (22.0f);
@@ -630,9 +637,11 @@ private:
             g.setColour (col::text2); g.setFont (font (13.0f));
             g.drawFittedText (u8 ("Delay espacial estéreo · VST3 / AU\nwww.beatfreakstudio.com\nSuporte: juninhopiradex@hotmail.com"),
                               r.removeFromTop (60.0f).toNearestInt(), juce::Justification::topLeft, 3);
+            label (g, lic::License::get().statusText(), r.removeFromTop (18.0f), 12.5f, W::Semi, col::cyan, juce::Justification::centredLeft, 0.02f);
         };
-        p.layout = [&p, &on, &th, &am, &at, &ho, &re, &law, &wt, &ot, &mx, sizes]
+        p.layout = [&p, &on, &th, &am, &at, &ho, &re, &law, &wt, &ot, &mx, sizes, &logout]
         {
+            logout.setBounds (746, 346, 130, 28);
             p.sections = { { { 0, 0, 964, 190 }, "DUCKER" }, { { 0, 202, 474, 190 }, "MISTURA E GANHO" }, { { 490, 202, 230, 190 }, "INTERFACE" }, { { 732, 202, 232, 190 }, "SOBRE" } };
             on.setBounds (110, 4, 62, 26);
             row ({ &th, &am, &at, &ho, &re }, { 10, 40, 760, 140 });
@@ -682,6 +691,9 @@ private:
         repaint();
     }
 
+    // ------------------------------------------------------------------ senha
+    LoginOverlay login;
+
     // ------------------------------------------------------------------ browser
     std::unique_ptr<PresetBrowser> browser;
 
@@ -699,6 +711,13 @@ private:
     // ------------------------------------------------------------------ timer
     void timerCallback() override
     {
+        lic::License::get().checkExpiry();
+        const bool locked = ! lic::License::get().isUnlocked();
+        if (locked != login.isVisible())
+        {
+            login.setVisible (locked);
+            if (locked) { login.toFront (true); browser.reset(); }
+        }
         const auto v = proc.raw.load();
         const bool sync = v.sync > 0.5f;
         timeKnob->setVisible (! sync); divKnob->setVisible (sync);

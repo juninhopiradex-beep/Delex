@@ -72,6 +72,28 @@ int main()
     p.setPlayConfigDetails (2, 2, 48000.0, 512);
     p.prepareToPlay (48000.0, 512);
 
+    // 0) licença: PBKDF2 correcto, senha errada recusada, plugin bloqueado é transparente
+    {
+        auto hex = [] (const juce::MemoryBlock& m) { return juce::String::toHexString (m.getData(), (int) m.getSize(), 0); };
+        const auto v1 = hex (lic::License::pbkdf2 ("password", juce::MemoryBlock ("salt", 4), 1, 32));
+        const auto v2 = hex (lic::License::pbkdf2 ("password", juce::MemoryBlock ("salt", 4), 2, 32));
+        check (v1 == "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b"
+            && v2 == "ae4d0c95af6b46d32d0adff928f06dd02a303f8ef3c251dfd6e2d85a95474c43", "PBKDF2-HMAC-SHA256 (vectores de referência)");
+        lic::License::get().lock();
+        check (lic::License::get().tryPassword ("DLX-AAAA-BBBB-CCCC", false) == lic::License::Result::Wrong, "senha errada recusada");
+        setParam (p, delex::id::mix, 100.0f);
+        juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; double err = 0;
+        for (int k = 0; k < 20; ++k)
+        {
+            for (int i = 0; i < 512; ++i) { b.setSample (0, i, std::sin (0.03f * (float) (k * 512 + i))); b.setSample (1, i, 0.5f * std::sin (0.05f * (float) (k * 512 + i))); }
+            p.processBlock (b, m);
+            for (int i = 0; i < 512; ++i) err = juce::jmax (err, (double) std::abs (b.getSample (0, i) - std::sin (0.03f * (float) (k * 512 + i))));
+        }
+        check (err < 1e-6, "bloqueado: áudio passa sem alterações", err, 0.0);
+        lic::License::get().unlockForTests();
+        check (lic::License::get().isUnlocked(), "desbloqueio (build de testes)");
+    }
+
     // 1) todos os presets processam áudio sem NaN e sem picos absurdos
     {
         int bad = 0; float worst = 0;
@@ -186,6 +208,11 @@ int main()
             for (int i = 0; i < 6; ++i) { check (clickButton (*ed, tabs[i]), tabs[i]); feedLive(); snapshot (*ed, files[i]); }
             clickButton (*ed, "SIMPLE");
         }
+        // ecrã de senha
+        lic::License::get().lock(); pump (150);
+        snapshot (*ed, "docs/ui_login.png");
+        lic::License::get().unlockForTests(); pump (150);
+
         // browser de presets
         for (auto* c : ed->getChildren())
             for (auto* cc : c->getChildren())
