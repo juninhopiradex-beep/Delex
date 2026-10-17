@@ -12,6 +12,8 @@ No DAW procura **DELEX by Piradex** (fabricante Piradex). Pode coexistir com o D
 
 **Senha** — na primeira vez o plugin pede uma senha (as senhas beta são válidas até 31/12/2026). Com "Lembrar neste computador" ligado não volta a pedir. Enquanto não houver senha o plugin deixa passar o áudio sem alterações, para não estragar a sessão. Em UTILITIES › SOBRE vês o estado da licença e podes **TERMINAR SESSÃO**.
 
+**Idioma (PT | EN)** — o seletor PT | EN está no cabeçalho, em UTILITIES › INTERFACE e no ecrã da senha. A interface muda logo, sem fechar o plugin. Na primeira vez segue o idioma do sistema; a escolha é partilhada por todos os plugins Piradex. Os nomes dos parâmetros no DAW não mudam, por isso as automações continuam a funcionar.
+
 ## 2. Vista SIMPLE
 
 ![SIMPLE](ui_simple.png)

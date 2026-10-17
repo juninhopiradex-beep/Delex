@@ -1,8 +1,10 @@
-# DELEX by Piradex — v2 (delay espacial)
+# DELEX by Piradex — v2.0.0 (delay espacial)
 
-Delay estéreo espacial em VST3 e AU, para **macOS 10.13+ (Intel e Apple Silicon, num só instalador)** e **Windows 10/11 64 bits**.
+Delay estéreo espacial em **VST3, AU e AAX (Pro Tools)**, interface em **Português e Inglês**, para **macOS 10.13+ (Intel e Apple Silicon, num só instalador)** e **Windows 10/11 64 bits**.
 
-![Vista SIMPLE](docs/ui_simple.png)
+| Português | English |
+|---|---|
+| ![Vista SIMPLE](docs/ui_simple.png) | ![SIMPLE view](docs/ui_simple_en.png) |
 
 ## O que faz
 
@@ -11,6 +13,7 @@ Delay estéreo espacial em VST3 e AU, para **macOS 10.13+ (Intel e Apple Silicon
 - **Feedback moldável**: EQ no loop (low/high cut 6/12/24 dB, pico com compensação), dispersão, difusão, saturação de fita, digital grit — com ordem configurável.
 - **Ducker**, **Freeze** sem perdas, mudanças de tempo por **glide de fita** ou **crossfade**, modulação (seno/triângulo/aleatório, sync), wow & flutter.
 - **Vista SIMPLE** com 6 controlos (TIME, FEEDBACK, SPACE, TONE, CHARACTER, MIX) e **vista ADVANCED** com 6 abas.
+- **Idioma PT | EN**: seletor no cabeçalho, na página Utilities (INTERFACE) e no ecrã da senha. Na primeira vez segue o idioma do sistema; a escolha é partilhada por todos os plugins Piradex. Os nomes dos parâmetros no DAW não mudam (as automações continuam a funcionar).
 - **61 presets** de fábrica (Vocals, Afro House, Kizomba, Trap, Drums, Guitar, Synth, Ambient, Lo-Fi, Dub, Transition, Master FX), pesquisa, favoritos, presets do utilizador, A/B, desfazer/refazer, interface 75–200 %.
 
 ## Senha
@@ -19,9 +22,10 @@ Ao abrir pela primeira vez o plugin pede uma senha (master ou beta). As senhas *
 
 ## Descarregar
 
-Página **Releases** deste repositório → `v2.0.0-beta`:
+Página **Releases** deste repositório → `v2.0.0`:
 - `DELEX-by-Piradex-2.0.0-macOS.dmg` — instalador .pkg (VST3 + AU), Intel e Apple Silicon
 - `DELEX-by-Piradex-2.0.0-Windows-Setup.exe` — instalador VST3 (ou o `.zip` para instalação manual)
+- `DELEX-by-Piradex-2.0.0-macOS-AAX-*.zip` e `...-Windows-AAX-*.zip` — AAX para Pro Tools (ver `installer/LEIA-ME-AAX.txt`). Enquanto não houver assinatura PACE os ficheiros chamam-se `...-nao-assinado.zip` e só abrem no Pro Tools Developer; com os segredos `PACE_*` configurados no GitHub o CI assina-os automaticamente.
 
 ## Documentação
 
@@ -33,7 +37,7 @@ Página **Releases** deste repositório → `v2.0.0-beta`:
 
 ```
 cmake -B build -DCMAKE_BUILD_TYPE=Release            # descarrega o JUCE 8.0.15
-cmake --build build --config Release --target Delex_VST3 Delex_AU
+cmake --build build --config Release --target Delex_VST3 Delex_AU Delex_AAX
 ```
 macOS universal: `-G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13`.
 Testes: `-DDLX_BUILD_TESTS=ON` → `delex_core_test` (DSP) e `delex_plugin_test` (plugin completo + capturas da interface).

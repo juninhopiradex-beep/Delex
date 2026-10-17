@@ -10,7 +10,7 @@ namespace delex::ui
 {
 using APVTS = juce::AudioProcessorValueTreeState;
 
-inline const juce::String fineTip = juce::String::fromUTF8 ("\n(Duplo clique repõe · Shift arrasta com precisão · duplo clique no valor para escrever)");
+inline juce::String fineTip() { return tr ("\n(Duplo clique repõe · Shift arrasta com precisão · duplo clique no valor para escrever)", "\n(Double-click resets · Shift-drag for precision · double-click the value to type)"); }
 
 // ---------------------------------------------------------------- slider com ajuste fino (Shift)
 class FineSlider : public juce::Slider
@@ -47,13 +47,13 @@ public:
         att = std::make_unique<APVTS::SliderAttachment> (s, pid, slider);
         if (auto* p = s.getParameter (pid))
             slider.setDoubleClickReturnValue (true, p->convertFrom0to1 (p->getDefaultValue()));
-        slider.setTooltip (tip + fineTip);
+        slider.setTooltip (tip + fineTip());
 
         value.setJustificationType (juce::Justification::centred);
         value.setFont (size == Size::Big ? mono (15.0f) : mono (12.5f));
         value.setColour (juce::Label::textColourId, accent);
         value.setEditable (false, true, false);
-        value.setTooltip (juce::String::fromUTF8 ("Duplo clique para escrever um valor"));
+        value.setTooltip (tr ("Duplo clique para escrever um valor", "Double-click to type a value"));
         value.onTextChange = [this] { slider.setValue (slider.getValueFromText (value.getText()), juce::sendNotificationSync); refresh(); };
         addAndMakeVisible (value);
         slider.onValueChange = [this] { refresh(); };
@@ -462,7 +462,7 @@ public:
 
         if (! compact)
         {
-            label (g, "FASE", in.removeFromTop (16.0f), 11.0f, W::Semi, col::muted, Justification::centredLeft, 0.18f);
+            label (g, tr ("FASE", "PHASE"), in.removeFromTop (16.0f), 11.0f, W::Semi, col::muted, Justification::centredLeft, 0.18f);
             auto sc = in.removeFromTop (in.getHeight() - 56.0f).reduced (4.0f);
             const float s = jmin (sc.getWidth(), sc.getHeight()) * 0.5f;
             const auto c = sc.getCentre();
@@ -490,10 +490,10 @@ public:
         // barra de correlação
         auto row = in.removeFromTop (14.0f);
         g.setFont (mono (10.0f)); g.setColour (col::muted);
-        if (compact) g.drawText (String::fromUTF8 ("CORRELAÇÃO"), row, Justification::centredLeft);
+        if (compact) g.drawText (tr ("CORRELAÇÃO", "CORRELATION"), row, Justification::centredLeft);
         else { g.drawText (String::fromUTF8 ("\xe2\x88\x92") + "1", row, Justification::centredLeft); g.drawText ("+1", row, Justification::centredRight); }
         g.setColour (corr < -0.2f ? col::coral : col::cyan);
-        g.drawText ((compact ? String() : String::fromUTF8 ("CORRELAÇÃO ")) + (corr >= 0 ? "+" : "") + String (corr, 2), row, compact ? Justification::centredRight : Justification::centred);
+        g.drawText ((compact ? String() : tr ("CORRELAÇÃO ", "CORRELATION ")) + (corr >= 0 ? "+" : "") + String (corr, 2), row, compact ? Justification::centredRight : Justification::centred);
         in.removeFromTop (4.0f);
         auto bar = in.removeFromTop (6.0f);
         g.setColour (Colour (0xff1c1f25)); g.fillRoundedRectangle (bar, 3.0f);
@@ -514,7 +514,7 @@ public:
         else
         {
             const bool bad = corr < -0.2f;
-            const String t = bad ? String::fromUTF8 ("FASE INVERTIDA") : String ("MONO OK");
+            const String t = bad ? tr ("FASE INVERTIDA", "PHASE INVERTED") : String ("MONO OK");
             auto badge = in.removeFromTop (17.0f).withWidth (bad ? 98.0f : 62.0f);
             g.setColour ((bad ? col::coral : col::cyan).withAlpha (0.35f)); g.drawRoundedRectangle (badge, 3.0f, 1.0f);
             label (g, t, badge, 10.5f, W::Semi, bad ? col::coral : col::cyan, Justification::centred, 0.1f);
@@ -533,7 +533,7 @@ private:
 class EqDisplay : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    explicit EqDisplay (DelexProcessor& p) : proc (p) { setTooltip (juce::String::fromUTF8 ("Arrasta os nós: low cut, pico (frequência e ganho) e high cut. Roda do rato no pico muda o Q. Duplo clique repõe.")); }
+    explicit EqDisplay (DelexProcessor& p) : proc (p) { setTooltip (tr ("Arrasta os nós: low cut, pico (frequência e ganho) e high cut. Roda do rato no pico muda o Q. Duplo clique repõe.", "Drag the nodes: low cut, peak (frequency and gain) and high cut. Mouse wheel on the peak changes Q. Double-click resets.")); }
 
     void tick()
     {
@@ -604,7 +604,7 @@ public:
         if (std::abs (vals.tone) > 0.5f)
         {
             g.setColour (col::cyan); g.setFont (mono (10.0f));
-            g.drawText ("TONE " + String (vals.tone, 0) + String::fromUTF8 (" (efectivo)"), r.reduced (10, 6), Justification::topRight);
+            g.drawText ("TONE " + String (vals.tone, 0) + tr (" (efectivo)", " (effective)"), r.reduced (10, 6), Justification::topRight);
         }
     }
 

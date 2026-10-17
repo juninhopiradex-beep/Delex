@@ -19,14 +19,14 @@ public:
         password.setPasswordCharacter ((juce::juce_wchar) 0x2022);
         password.setFont (mono (18.0f));
         password.setJustification (juce::Justification::centred);
-        password.setTextToShowWhenEmpty ("Senha", col::dim);
+        password.setTextToShowWhenEmpty (tr ("Senha", "Password"), col::dim);
         password.setColour (juce::TextEditor::backgroundColourId, col::deep);
         password.setColour (juce::TextEditor::outlineColourId, col::line2);
         password.setColour (juce::TextEditor::focusedOutlineColourId, col::coral);
         password.onReturnKey = [this] { submit(); };
         addAndMakeVisible (password);
 
-        remember.setButtonText ("Lembrar neste computador");
+        remember.setButtonText (tr ("Lembrar neste computador", "Remember this computer"));
         remember.setToggleState (true, juce::dontSendNotification);
         remember.setColour (juce::ToggleButton::textColourId, col::text2);
         remember.setColour (juce::ToggleButton::tickColourId, col::coral);
@@ -43,6 +43,14 @@ public:
         message.setJustificationType (juce::Justification::centred);
         message.setFont (font (14.0f));
         addAndMakeVisible (message);
+
+        language.accent = col::coral;
+        language.background = col::deep;
+        language.outline = col::line2;
+        language.text = col::text;
+        language.textDim = col::muted;
+        language.hoverFill = col::panel2;
+        addAndMakeVisible (language);
     }
 
     void paint (juce::Graphics& g) override
@@ -62,7 +70,7 @@ public:
         g.drawText ("by Piradex", t.removeFromTop (22.0f), juce::Justification::centred);
         t.removeFromTop (6.0f);
         g.setColour (col::muted); g.setFont (font (14.0f));
-        g.drawText (juce::String::fromUTF8 ("Introduza a sua senha para começar"), t.removeFromTop (24.0f), juce::Justification::centred);
+        g.drawText (tr ("Introduza a sua senha para começar", "Enter your password to get started"), t.removeFromTop (24.0f), juce::Justification::centred);
     }
 
     void resized() override
@@ -76,6 +84,7 @@ public:
         enter.setBounds (c.removeFromTop (40).withSizeKeepingCentre (170, 40));
         c.removeFromTop (8);
         message.setBounds (c.removeFromTop (36));
+        language.setBounds (card().removeFromBottom (40).removeFromRight (98).reduced (14, 8));
     }
 
     void visibilityChanged() override
@@ -92,7 +101,7 @@ private:
         busy = true;
         enter.setEnabled (false);
         message.setColour (juce::Label::textColourId, col::muted);
-        message.setText (juce::String::fromUTF8 ("A verificar…"), juce::dontSendNotification);
+        message.setText (tr ("A verificar…", "Checking…"), juce::dontSendNotification);
 
         const auto pw = password.getText();
         const bool keep = remember.getToggleState();
@@ -122,15 +131,16 @@ private:
         }
         password.selectAll();
         message.setColour (juce::Label::textColourId, col::coral);
-        message.setText (r == lic::License::Result::Expired ? juce::String::fromUTF8 ("Esta senha beta já expirou.")
-                                                            : juce::String ("Senha incorreta."),
+        message.setText (r == lic::License::Result::Expired ? tr ("Esta senha beta já expirou.", "This beta password has expired.")
+                                                            : juce::String (tr ("Senha incorreta.", "Incorrect password.")),
                          juce::dontSendNotification);
     }
 
     juce::TextEditor password;
     juce::ToggleButton remember;
-    juce::TextButton enter { "ENTRAR" };
+    juce::TextButton enter { tr ("ENTRAR", "SIGN IN") };
     juce::Label message;
     bool busy = false;
+    piradex::i18n::LanguageSwitch language;   // a interface é reconstruída ao mudar de idioma
 };
 } // namespace delex::ui

@@ -39,7 +39,7 @@ private:
 class PresetNameButton : public juce::Button
 {
 public:
-    PresetNameButton() : juce::Button ("preset") { setTooltip ("Abrir o browser de presets"); }
+    PresetNameButton() : juce::Button ("preset") { setTooltip (tr ("Abrir o browser de presets", "Open the preset browser")); }
     String category, name;
     void paintButton (juce::Graphics& g, bool over, bool) override
     {
@@ -77,6 +77,14 @@ public:
         buildSimple();
         buildBottom();
         buildAdvanced();
+        headerLang.accent = col::coral;
+        headerLang.background = col::deep;
+        headerLang.outline = col::line2;
+        headerLang.text = col::text;
+        headerLang.textDim = col::muted;
+        headerLang.hoverFill = col::panel2;
+        headerLang.fontHeight = 11.0f;
+        addAndMakeVisible (headerLang);
         login.onUnlocked = [this] { login.setVisible (false); repaint(); };
         addChildComponent (login);
         setSize (DelexEditor::kW, DelexEditor::kH);
@@ -123,6 +131,7 @@ public:
     void resized() override
     {
         // cabeçalho
+        headerLang.setBounds (262, 15, 70, 22);
         prevBtn.setBounds (350, 11, 30, 30);
         presetBtn.setBounds (386, 11, 270, 30);
         nextBtn.setBounds (662, 11, 30, 30);
@@ -167,15 +176,15 @@ private:
     void buildHeader()
     {
         for (auto* b : { &prevBtn, &nextBtn, &undoBtn, &redoBtn }) addAndMakeVisible (b);
-        prevBtn.setTooltip ("Preset anterior"); nextBtn.setTooltip (u8 ("Próximo preset"));
-        undoBtn.setTooltip ("Desfazer"); redoBtn.setTooltip ("Refazer");
+        prevBtn.setTooltip (tr ("Preset anterior", "Previous preset")); nextBtn.setTooltip (tr ("Próximo preset", "Next preset"));
+        undoBtn.setTooltip (tr ("Desfazer", "Undo")); redoBtn.setTooltip (tr ("Refazer", "Redo"));
         prevBtn.onClick = [this] { stepPreset (-1); };
         nextBtn.onClick = [this] { stepPreset (+1); };
         undoBtn.onClick = [this] { proc.undo.undo(); };
         redoBtn.onClick = [this] { proc.undo.redo(); };
 
         favBtn.outline = false;
-        favBtn.setTooltip ("Marcar como favorito");
+        favBtn.setTooltip (tr ("Marcar como favorito", "Mark as favourite"));
         favBtn.onClick = [this] { proc.toggleFavourite (proc.currentPresetName()); refreshHeader(); };
         addAndMakeVisible (favBtn);
 
@@ -188,8 +197,8 @@ private:
             b->getProperties().set ("fontH", 13.0f);
             addAndMakeVisible (b);
         }
-        abA.setTooltip (u8 ("Estado A — compara duas versões das definições"));
-        abB.setTooltip (u8 ("Estado B — clica para alternar; Alt+clique copia o estado actual para o outro"));
+        abA.setTooltip (tr ("Estado A — compara duas versões das definições", "State A — compare two versions of the settings"));
+        abB.setTooltip (tr ("Estado B — clica para alternar; Alt+clique copia o estado actual para o outro", "State B — click to switch; Alt+click copies the current state to the other"));
         abA.onClick = [this] { if (juce::ModifierKeys::currentModifiers.isAltDown()) proc.copyToOtherSlot(); else proc.selectSlot (0); refreshHeader(); };
         abB.onClick = [this] { if (juce::ModifierKeys::currentModifiers.isAltDown()) proc.copyToOtherSlot(); else proc.selectSlot (1); refreshHeader(); };
 
@@ -200,8 +209,8 @@ private:
             b->getProperties().set ("fontH", 11.5f);
             addAndMakeVisible (b);
         }
-        simpleBtn.setTooltip (u8 ("Vista simples: os 6 controlos essenciais"));
-        advBtn.setTooltip (u8 ("Vista avançada: tempo, espaço, EQ do loop, movimento, textura e utilidades"));
+        simpleBtn.setTooltip (tr ("Vista simples: os 6 controlos essenciais", "Simple view: the 6 essential controls"));
+        advBtn.setTooltip (tr ("Vista avançada: tempo, espaço, EQ do loop, movimento, textura e utilidades", "Advanced view: timing, space, loop EQ, motion, texture and utilities"));
         simpleBtn.onClick = [this] { setView (false); };
         advBtn.onClick = [this] { setView (true); };
         refreshHeader();
@@ -242,7 +251,7 @@ private:
     {
         StyleLabel() { setInterceptsMouseClicks (false, false); }
         void paint (juce::Graphics& g) override
-        { label (g, "ESTILO", getLocalBounds().toFloat(), 11.0f, W::Semi, col::muted, juce::Justification::centredLeft, 0.18f); }
+        { label (g, tr ("ESTILO", "STYLE"), getLocalBounds().toFloat(), 11.0f, W::Semi, col::muted, juce::Justification::centredLeft, 0.18f); }
     } styleLabel;
     juce::OwnedArray<juce::TextButton> styleBtns;
     int styleSel = -1;
@@ -264,29 +273,29 @@ private:
             b->getProperties().set ("fontH", 12.0f);
             b->setColour (juce::TextButton::buttonOnColourId, col::coral);
             b->setColour (juce::TextButton::textColourOffId, col::soft);
-            b->setTooltip (String::fromUTF8 (st[(size_t) i].tip) + u8 (" — ponto de partida (não altera tempo, mix nem ducking)"));
+            b->setTooltip (styleTip (st[(size_t) i]) + tr (" — ponto de partida (não altera tempo, mix nem ducking)", " — starting point (does not change time, mix or ducking)"));
             b->onClick = [this, i] { proc.applyStyle (i); styleSel = i; refreshStyles(); };
             simpleView.addAndMakeVisible (b);
         }
-        syncBtn = std::make_unique<ToggleChip> (s, id::sync, "SYNC", col::cyan, u8 ("Sincroniza o tempo com o BPM do projecto (divisões musicais)"));
+        syncBtn = std::make_unique<ToggleChip> (s, id::sync, "SYNC", col::cyan, tr ("Sincroniza o tempo com o BPM do projecto (divisões musicais)", "Syncs the time to the project BPM (musical divisions)"));
         simpleView.addAndMakeVisible (*syncBtn);
         bpmBtn.getProperties().set ("mono", true);
         bpmBtn.getProperties().set ("fontH", 13.0f);
         bpmBtn.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff0f1013));
-        bpmBtn.setTooltip (u8 ("BPM do projecto (ou do TAP quando o host não envia tempo)"));
+        bpmBtn.setTooltip (tr ("BPM do projecto (ou do TAP quando o host não envia tempo)", "Project BPM (or from TAP when the host sends no tempo)"));
         bpmBtn.setEnabled (false);
         simpleView.addAndMakeVisible (bpmBtn);
-        tapBtn.setTooltip (u8 ("Toca 3–4 vezes ao ritmo: define o tempo em ms (desliga o SYNC)"));
+        tapBtn.setTooltip (tr ("Toca 3–4 vezes ao ritmo: define o tempo em ms (desliga o SYNC)", "Tap 3–4 times in rhythm: sets the time in ms (turns SYNC off)"));
         tapBtn.onClick = [this] { proc.tap(); };
         simpleView.addAndMakeVisible (tapBtn);
 
-        timeKnob = std::make_unique<Knob> (s, id::time, "TIME", "Ritmo do eco", col::coral, Knob::Size::Big, false, u8 ("Tempo do eco em milissegundos (1 ms – 8 s)"));
-        divKnob  = std::make_unique<Knob> (s, id::div, "TIME", "Ritmo do eco", col::coral, Knob::Size::Big, false, u8 ("Divisão musical do eco (D = pontuado, T = tercina)"));
-        fbKnob   = std::make_unique<Knob> (s, id::feedback, "FEEDBACK", u8 ("Repetições"), col::coral, Knob::Size::Big, false, u8 ("Quanto do eco volta a entrar — mais feedback, mais repetições. 100 % é estável."));
-        spaceKnob = std::make_unique<Knob> (s, id::space, "SPACE", u8 ("Largura · rotação · difusão"), col::cyan, Knob::Size::Big, false, u8 ("Macro: alarga a saída, acrescenta difusão e roda os ecos no estéreo"));
-        toneKnob = std::make_unique<Knob> (s, id::tone, "TONE", u8 ("Escuro ↔ brilhante"), col::cyan, Knob::Size::Big, true, u8 ("Macro: para a esquerda escurece os ecos, para a direita abrilhanta-os"));
-        charKnob = std::make_unique<Knob> (s, id::character, "CHARACTER", u8 ("Digital ↔ fita"), col::coral, Knob::Size::Big, true, u8 ("Macro: direita = fita (saturação, warmth, wow) · esquerda = digital (bits e sample rate)"));
-        mixKnob  = std::make_unique<Knob> (s, id::mix, "MIX", u8 ("Seco ↔ molhado"), col::text, Knob::Size::Big, false, u8 ("Equilíbrio seco/molhado. Em envio auxiliar usa 100 %."));
+        timeKnob = std::make_unique<Knob> (s, id::time, "TIME", tr ("Ritmo do eco", "Echo rhythm"), col::coral, Knob::Size::Big, false, tr ("Tempo do eco em milissegundos (1 ms – 8 s)", "Echo time in milliseconds (1 ms – 8 s)"));
+        divKnob  = std::make_unique<Knob> (s, id::div, "TIME", tr ("Ritmo do eco", "Echo rhythm"), col::coral, Knob::Size::Big, false, tr ("Divisão musical do eco (D = pontuado, T = tercina)", "Musical division of the echo (D = dotted, T = triplet)"));
+        fbKnob   = std::make_unique<Knob> (s, id::feedback, "FEEDBACK", tr ("Repetições", "Repeats"), col::coral, Knob::Size::Big, false, tr ("Quanto do eco volta a entrar — mais feedback, mais repetições. 100 % é estável.", "How much of the echo feeds back — more feedback, more repeats. 100 % is stable."));
+        spaceKnob = std::make_unique<Knob> (s, id::space, "SPACE", tr ("Largura · rotação · difusão", "Width · rotation · diffusion"), col::cyan, Knob::Size::Big, false, tr ("Macro: alarga a saída, acrescenta difusão e roda os ecos no estéreo", "Macro: widens the output, adds diffusion and rotates the echoes in stereo"));
+        toneKnob = std::make_unique<Knob> (s, id::tone, "TONE", tr ("Escuro ↔ brilhante", "Dark ↔ bright"), col::cyan, Knob::Size::Big, true, tr ("Macro: para a esquerda escurece os ecos, para a direita abrilhanta-os", "Macro: left darkens the echoes, right brightens them"));
+        charKnob = std::make_unique<Knob> (s, id::character, "CHARACTER", tr ("Digital ↔ fita", "Digital ↔ tape"), col::coral, Knob::Size::Big, true, tr ("Macro: direita = fita (saturação, warmth, wow) · esquerda = digital (bits e sample rate)", "Macro: right = tape (saturation, warmth, wow) · left = digital (bits and sample rate)"));
+        mixKnob  = std::make_unique<Knob> (s, id::mix, "MIX", tr ("Seco ↔ molhado", "Dry ↔ wet"), col::text, Knob::Size::Big, false, tr ("Equilíbrio seco/molhado. Em envio auxiliar usa 100 %.", "Dry/wet balance. On an aux send use 100 %."));
         for (auto* k : { timeKnob.get(), divKnob.get(), fbKnob.get(), spaceKnob.get(), toneKnob.get(), charKnob.get(), mixKnob.get() })
             simpleView.addAndMakeVisible (k);
     }
@@ -329,9 +338,9 @@ private:
 
     // ------------------------------------------------------------------ rodapé
     std::unique_ptr<ToggleChip> freezeBtn_, duckBtn_, bypassBtn_;
-    ToggleChip& freezeBtn = *(freezeBtn_ = std::make_unique<ToggleChip> (s, id::freeze, "FREEZE", col::cyan, u8 ("Congela a cauda actual: deixa de entrar som novo e os ecos ficam a repetir sem perdas")));
-    ToggleChip& duckBtn = *(duckBtn_ = std::make_unique<ToggleChip> (s, id::duck, "DUCK", col::coral, u8 ("Baixa os ecos enquanto a fonte toca e solta-os nas pausas (ajustes em UTILITIES)")));
-    ToggleChip& bypassBtn = *(bypassBtn_ = std::make_unique<ToggleChip> (s, id::bypass, "BYPASS", col::soft, u8 ("Desliga o efeito sem cliques")));
+    ToggleChip& freezeBtn = *(freezeBtn_ = std::make_unique<ToggleChip> (s, id::freeze, "FREEZE", col::cyan, tr ("Congela a cauda actual: deixa de entrar som novo e os ecos ficam a repetir sem perdas", "Freezes the current tail: no new sound comes in and the echoes repeat without loss")));
+    ToggleChip& duckBtn = *(duckBtn_ = std::make_unique<ToggleChip> (s, id::duck, "DUCK", col::coral, tr ("Baixa os ecos enquanto a fonte toca e solta-os nas pausas (ajustes em UTILITIES)", "Lowers the echoes while the source plays and releases them in the gaps (settings in UTILITIES)")));
+    ToggleChip& bypassBtn = *(bypassBtn_ = std::make_unique<ToggleChip> (s, id::bypass, "BYPASS", col::soft, tr ("Desliga o efeito sem cliques", "Turns the effect off without clicks")));
     GrBar grBar { proc };
     FineSlider outSlider, mixSlider;
     juce::Label outValue, mixValue;
@@ -350,8 +359,8 @@ private:
         mixAtt = std::make_unique<APVTS::SliderAttachment> (s, id::mix, mixSlider);
         outSlider.setDoubleClickReturnValue (true, 0.0);
         mixSlider.setDoubleClickReturnValue (true, 25.0);
-        outSlider.setTooltip (u8 ("Ganho de saída") + fineTip);
-        mixSlider.setTooltip (u8 ("Equilíbrio seco/molhado") + fineTip);
+        outSlider.setTooltip (tr ("Ganho de saída", "Output gain") + fineTip());
+        mixSlider.setTooltip (tr ("Equilíbrio seco/molhado", "Dry/wet balance") + fineTip());
         for (auto* l : { &outValue, &mixValue })
         {
             l->setFont (mono (13.0f));
@@ -416,20 +425,20 @@ private:
 
     void buildTiming (Page& p)
     {
-        auto& t   = p.add (knob (s, id::time, "TIME", "", col::coral, K::Small, false, u8 ("Tempo do eco em ms (quando o SYNC está desligado)")));
-        auto& rr  = p.add (knob (s, id::r_ratio, "R RATIO", "", col::coral, K::Small, false, u8 ("Tempo do canal direito em relação ao esquerdo (1.00 = igual)")));
-        auto& fb  = p.add (knob (s, id::feedback, "FEEDBACK", "", col::coral, K::Small, false, u8 ("Quantidade de realimentação")));
-        auto& bal = p.add (knob (s, id::fb_balance, "FB L/R", "", col::coral, K::Small, true, u8 ("Equilíbrio do feedback entre esquerda e direita")));
-        auto& gl  = p.add (knob (s, id::glide, "GLIDE", "", col::text, K::Small, false, u8 ("Duração do deslize quando o tempo muda (modo fita)")));
-        auto& sync = p.add (std::make_unique<ToggleChip> (s, id::sync, "SYNC", col::cyan, u8 ("Sincroniza com o BPM do projecto")));
-        auto& div = p.add (std::make_unique<ChoiceBox> (s, id::div, u8 ("Divisão musical (D = pontuado, T = tercina)")));
+        auto& t   = p.add (knob (s, id::time, "TIME", "", col::coral, K::Small, false, tr ("Tempo do eco em ms (quando o SYNC está desligado)", "Echo time in ms (when SYNC is off)")));
+        auto& rr  = p.add (knob (s, id::r_ratio, "R RATIO", "", col::coral, K::Small, false, tr ("Tempo do canal direito em relação ao esquerdo (1.00 = igual)", "Right channel time relative to the left (1.00 = equal)")));
+        auto& fb  = p.add (knob (s, id::feedback, "FEEDBACK", "", col::coral, K::Small, false, tr ("Quantidade de realimentação", "Amount of feedback")));
+        auto& bal = p.add (knob (s, id::fb_balance, "FB L/R", "", col::coral, K::Small, true, tr ("Equilíbrio do feedback entre esquerda e direita", "Feedback balance between left and right")));
+        auto& gl  = p.add (knob (s, id::glide, "GLIDE", "", col::text, K::Small, false, tr ("Duração do deslize quando o tempo muda (modo fita)", "Glide duration when the time changes (tape mode)")));
+        auto& sync = p.add (std::make_unique<ToggleChip> (s, id::sync, "SYNC", col::cyan, tr ("Sincroniza com o BPM do projecto", "Syncs to the project BPM")));
+        auto& div = p.add (std::make_unique<ChoiceBox> (s, id::div, tr ("Divisão musical (D = pontuado, T = tercina)", "Musical division (D = dotted, T = triplet)")));
         auto& tap = p.add (std::make_unique<juce::TextButton> ("TAP"));
         tap.onClick = [this] { proc.tap(); };
-        tap.setTooltip (u8 ("Toca ao ritmo para definir o tempo"));
+        tap.setTooltip (tr ("Toca ao ritmo para definir o tempo", "Tap in rhythm to set the time"));
         auto& route = p.add (std::make_unique<Segmented> (s, id::routing, juce::StringArray { "DUAL", "PING-PONG", "MONO" }, col::coral,
-                             u8 ("Dual: L e R independentes · Ping-Pong: ecos alternam entre lados · Mono: soma em mono")));
-        auto& trans = p.add (std::make_unique<Segmented> (s, id::transition, juce::StringArray { "FITA (GLIDE)", "CROSSFADE" }, col::coral,
-                             u8 ("Fita: o tempo desliza com mudança de afinação · Crossfade: troca suave sem mudar a afinação")));
+                             tr ("Dual: L e R independentes · Ping-Pong: ecos alternam entre lados · Mono: soma em mono", "Dual: independent L and R · Ping-Pong: echoes alternate between sides · Mono: summed to mono")));
+        auto& trans = p.add (std::make_unique<Segmented> (s, id::transition, juce::StringArray { tr ("FITA (GLIDE)", "TAPE (GLIDE)"), "CROSSFADE" }, col::coral,
+                             tr ("Fita: o tempo desliza com mudança de afinação · Crossfade: troca suave sem mudar a afinação", "Tape: the time glides with a pitch change · Crossfade: smooth switch without changing pitch")));
         advTime = &t; advDiv = &div;
 
         p.extraPaint = [this, &p] (juce::Graphics& g)
@@ -437,20 +446,23 @@ private:
             const auto& sec = p.sections[1].r.toFloat();
             g.setColour (col::muted); g.setFont (font (13.0f));
             const int r = (int) std::lround (proc.raw.load().routing);
-            const String txt = r == 0 ? u8 ("Cada lado tem o seu tempo; a matriz SPACE mistura-os em cada repetição.")
-                             : r == 1 ? u8 ("A entrada soma-se em mono e os ecos alternam esquerda → direita → esquerda.")
-                                      : u8 ("Um único eco em mono, centrado. Ideal para 808 e baixos.");
+            const String txt = r == 0 ? tr ("Cada lado tem o seu tempo; a matriz SPACE mistura-os em cada repetição.", "Each side has its own time; the SPACE matrix mixes them on every repeat.")
+                             : r == 1 ? tr ("A entrada soma-se em mono e os ecos alternam esquerda → direita → esquerda.", "The input is summed to mono and the echoes alternate left → right → left.")
+                                      : tr ("Um único eco em mono, centrado. Ideal para 808 e baixos.", "A single centred mono echo. Ideal for 808 and basses.");
             g.drawFittedText (txt, sec.reduced (14.0f).withTrimmedTop (64.0f).toNearestInt(), juce::Justification::topLeft, 3);
             auto tips = p.sections[0].r.toFloat().reduced (18.0f).withTrimmedTop (250.0f);
             g.setColour (col::dim); g.setFont (font (13.0f));
-            g.drawFittedText (u8 ("Com SYNC ligado o tempo segue o BPM do projecto (D = pontuado, T = tercina).\n"
+            g.drawFittedText (tr ("Com SYNC ligado o tempo segue o BPM do projecto (D = pontuado, T = tercina).\n"
                                   "R RATIO dá tempos diferentes a cada lado: 1.50 = relação 3:2, 0.75 = 3:4.\n"
-                                  "TAP: toca 3–4 vezes ao ritmo. Shift + arrastar = ajuste fino · duplo clique = repor."),
+                                  "TAP: toca 3–4 vezes ao ritmo. Shift + arrastar = ajuste fino · duplo clique = repor.",
+                                  "With SYNC on the time follows the project BPM (D = dotted, T = triplet).\n"
+                                  "R RATIO gives each side a different time: 1.50 = 3:2 ratio, 0.75 = 3:4.\n"
+                                  "TAP: tap 3–4 times in rhythm. Shift + drag = fine adjust · double-click = reset."),
                               tips.toNearestInt(), juce::Justification::topLeft, 6, 1.0f);
         };
         p.layout = [&p, &t, &div, &rr, &fb, &bal, &gl, &sync, &tap, &route, &trans]
         {
-            p.sections = { { { 0, 0, 560, 392 }, "TEMPO E FEEDBACK" }, { { 572, 0, 392, 186 }, "ENCAMINHAMENTO" }, { { 572, 198, 392, 194 }, u8 ("TRANSIÇÃO DE TEMPO") } };
+            p.sections = { { { 0, 0, 560, 392 }, tr ("TEMPO E FEEDBACK", "TIME AND FEEDBACK") }, { { 572, 0, 392, 186 }, tr ("ENCAMINHAMENTO", "ROUTING") }, { { 572, 198, 392, 194 }, tr ("TRANSIÇÃO DE TEMPO", "TIME TRANSITION") } };
             sync.setBounds (16, 36, 60, 28); div.setBounds (84, 36, 110, 28); tap.setBounds (202, 36, 56, 28);
             row ({ &t, &rr, &fb, &bal }, { 10, 84, 540, 130 });
             div.toFront (false);
@@ -462,15 +474,15 @@ private:
 
     void buildSpace (Page& p)
     {
-        auto& rot = p.add (knob (s, id::rotation, "ROTATION", "", col::cyan, K::Small, true, u8 ("Ângulo da matriz aplicada a cada repetição: os ecos rodam no campo estéreo")));
-        auto& mode = p.add (std::make_unique<Segmented> (s, id::rot_mode, juce::StringArray { u8 ("ROTAÇÃO"), u8 ("REFLEXÃO") }, col::cyan,
-                            u8 ("Rotação mantém o sentido; reflexão espelha o campo a cada repetição")));
-        auto& ir = p.add (knob (s, id::in_rot, "IN ROT", "", col::cyan, K::Small, true, u8 ("Rotação da entrada (±45°; 45° converte L/R em M/S)")));
-        auto& orr = p.add (knob (s, id::out_rot, "OUT ROT", "", col::cyan, K::Small, true, u8 ("Rotação da saída (±45°)")));
-        auto& iw = p.add (knob (s, id::in_width, "IN WIDTH", "", col::cyan, K::Small, false, u8 ("Largura da entrada antes do delay (0 = mono, 200 % = extra largo)")));
-        auto& ow = p.add (knob (s, id::out_width, "OUT WIDTH", "", col::cyan, K::Small, false, u8 ("Largura dos ecos à saída (nível compensado acima de 100 %)")));
-        auto& sp = p.add (knob (s, id::space, "SPACE", "", col::cyan, K::Small, false, u8 ("Macro SPACE: largura + difusão + rotação extra")));
-        auto& ms = p.add (std::make_unique<ToggleChip> (s, id::mono_safe, "MONO-SAFE", col::cyan, u8 ("Põe os graves dos ecos (< 150 Hz) em mono — mais seguro em clubes e no telemóvel")));
+        auto& rot = p.add (knob (s, id::rotation, "ROTATION", "", col::cyan, K::Small, true, tr ("Ângulo da matriz aplicada a cada repetição: os ecos rodam no campo estéreo", "Angle of the matrix applied on every repeat: the echoes rotate in the stereo field")));
+        auto& mode = p.add (std::make_unique<Segmented> (s, id::rot_mode, juce::StringArray { tr ("ROTAÇÃO", "ROTATION"), tr ("REFLEXÃO", "REFLECTION") }, col::cyan,
+                            tr ("Rotação mantém o sentido; reflexão espelha o campo a cada repetição", "Rotation keeps the direction; reflection mirrors the field on every repeat")));
+        auto& ir = p.add (knob (s, id::in_rot, "IN ROT", "", col::cyan, K::Small, true, tr ("Rotação da entrada (±45°; 45° converte L/R em M/S)", "Input rotation (±45°; 45° converts L/R to M/S)")));
+        auto& orr = p.add (knob (s, id::out_rot, "OUT ROT", "", col::cyan, K::Small, true, tr ("Rotação da saída (±45°)", "Output rotation (±45°)")));
+        auto& iw = p.add (knob (s, id::in_width, "IN WIDTH", "", col::cyan, K::Small, false, tr ("Largura da entrada antes do delay (0 = mono, 200 % = extra largo)", "Input width before the delay (0 = mono, 200 % = extra wide)")));
+        auto& ow = p.add (knob (s, id::out_width, "OUT WIDTH", "", col::cyan, K::Small, false, tr ("Largura dos ecos à saída (nível compensado acima de 100 %)", "Width of the echoes at the output (level-compensated above 100 %)")));
+        auto& sp = p.add (knob (s, id::space, "SPACE", "", col::cyan, K::Small, false, tr ("Macro SPACE: largura + difusão + rotação extra", "SPACE macro: width + diffusion + extra rotation")));
+        auto& ms = p.add (std::make_unique<ToggleChip> (s, id::mono_safe, "MONO-SAFE", col::cyan, tr ("Põe os graves dos ecos (< 150 Hz) em mono — mais seguro em clubes e no telemóvel", "Puts the echoes' lows (< 150 Hz) in mono — safer in clubs and on phones")));
         p.extraPaint = [this, &p] (juce::Graphics& g)
         {
             // mini-vista da matriz: eixos L/R e a sua imagem após uma repetição
@@ -490,13 +502,13 @@ private:
             const auto pl = toXY (M.a, M.c), pr = toXY (M.b, M.d);
             arrow (pl.x, pl.y, col::coral, 2.0f); arrow (pr.x, pr.y, col::cyan, 2.0f);
             g.setFont (font (11.0f)); g.setColour (col::coral);
-            g.drawText (u8 ("L → eco"), juce::Rectangle<float> (r.getX(), r.getBottom() + 2, r.getWidth() * 0.5f, 14), juce::Justification::centred);
+            g.drawText (tr ("L → eco", "L → echo"), juce::Rectangle<float> (r.getX(), r.getBottom() + 2, r.getWidth() * 0.5f, 14), juce::Justification::centred);
             g.setColour (col::cyan);
-            g.drawText (u8 ("R → eco"), juce::Rectangle<float> (r.getCentreX(), r.getBottom() + 2, r.getWidth() * 0.5f, 14), juce::Justification::centred);
+            g.drawText (tr ("R → eco", "R → echo"), juce::Rectangle<float> (r.getCentreX(), r.getBottom() + 2, r.getWidth() * 0.5f, 14), juce::Justification::centred);
         };
         p.layout = [&p, &rot, &mode, &ir, &orr, &iw, &ow, &sp, &ms]
         {
-            p.sections = { { { 0, 0, 470, 392 }, "MATRIZ ESPACIAL" }, { { 482, 0, 482, 200 }, u8 ("ENTRADA / SAÍDA") }, { { 482, 212, 482, 180 }, "MACRO E MONO" } };
+            p.sections = { { { 0, 0, 470, 392 }, tr ("MATRIZ ESPACIAL", "SPATIAL MATRIX") }, { { 482, 0, 482, 200 }, tr ("ENTRADA / SAÍDA", "INPUT / OUTPUT") }, { { 482, 212, 482, 180 }, tr ("MACRO E MONO", "MACRO AND MONO") } };
             mode.setBounds (16, 36, 210, 30);
             rot.setBounds (30, 96, 180, 200);
             row ({ &ir, &orr, &iw, &ow }, { 492, 40, 462, 140 });
@@ -509,14 +521,14 @@ private:
     {
         auto& disp = p.add (std::make_unique<EqDisplay> (proc));
         eq = &disp;
-        auto& lc = p.add (knob (s, id::low_cut, "LOW CUT", "", col::cyan, K::Small, false, u8 ("Corta graves dentro do loop: cada repetição fica mais leve")));
-        auto& slope = p.add (std::make_unique<Segmented> (s, id::cut_slope, juce::StringArray { "6 dB", "12 dB", "24 dB" }, col::text, u8 ("Inclinação dos cortes (por oitava)"), true));
-        auto& pf = p.add (knob (s, id::peak_freq, "PEAK FREQ", "", col::coral, K::Small, false, u8 ("Frequência do pico/vale no loop")));
-        auto& pg = p.add (knob (s, id::peak_gain, "GAIN", "", col::coral, K::Small, true, u8 ("Ganho do pico (±18 dB). Ganhos positivos acumulam-se a cada repetição")));
-        auto& pq = p.add (knob (s, id::peak_q, "Q", "", col::coral, K::Small, false, u8 ("Largura de banda do pico (mais alto = mais estreito)")));
-        auto& cp = p.add (knob (s, id::compensate, "COMPENSATE", "", col::text, K::Small, false, u8 ("Reduz o feedback na proporção do ganho do pico, para o loop não disparar")));
-        auto& hc = p.add (knob (s, id::high_cut, "HIGH CUT", "", col::cyan, K::Small, false, u8 ("Corta agudos dentro do loop: ecos mais escuros a cada repetição")));
-        auto& order = p.add (std::make_unique<ChoiceBox> (s, id::loop_order, u8 ("Ordem dos módulos dentro do loop de feedback")));
+        auto& lc = p.add (knob (s, id::low_cut, "LOW CUT", "", col::cyan, K::Small, false, tr ("Corta graves dentro do loop: cada repetição fica mais leve", "Cuts lows inside the loop: each repeat gets lighter")));
+        auto& slope = p.add (std::make_unique<Segmented> (s, id::cut_slope, juce::StringArray { "6 dB", "12 dB", "24 dB" }, col::text, tr ("Inclinação dos cortes (por oitava)", "Cut slope (per octave)"), true));
+        auto& pf = p.add (knob (s, id::peak_freq, "PEAK FREQ", "", col::coral, K::Small, false, tr ("Frequência do pico/vale no loop", "Frequency of the peak/dip in the loop")));
+        auto& pg = p.add (knob (s, id::peak_gain, "GAIN", "", col::coral, K::Small, true, tr ("Ganho do pico (±18 dB). Ganhos positivos acumulam-se a cada repetição", "Peak gain (±18 dB). Positive gains build up on every repeat")));
+        auto& pq = p.add (knob (s, id::peak_q, "Q", "", col::coral, K::Small, false, tr ("Largura de banda do pico (mais alto = mais estreito)", "Peak bandwidth (higher = narrower)")));
+        auto& cp = p.add (knob (s, id::compensate, "COMPENSATE", "", col::text, K::Small, false, tr ("Reduz o feedback na proporção do ganho do pico, para o loop não disparar", "Reduces the feedback in proportion to the peak gain, so the loop doesn't run away")));
+        auto& hc = p.add (knob (s, id::high_cut, "HIGH CUT", "", col::cyan, K::Small, false, tr ("Corta agudos dentro do loop: ecos mais escuros a cada repetição", "Cuts highs inside the loop: darker echoes on every repeat")));
+        auto& order = p.add (std::make_unique<ChoiceBox> (s, id::loop_order, tr ("Ordem dos módulos dentro do loop de feedback", "Order of the modules inside the feedback loop")));
         p.extraPaint = [this, &p] (juce::Graphics& g)
         {
             auto r = p.sections[1].r.toFloat().reduced (12.0f).withTrimmedTop (62.0f);
@@ -546,12 +558,12 @@ private:
             r.removeFromTop (6.0f);
             g.setColour (col::muted); g.setFont (font (12.5f));
             const float lim = proc.loopLimit.load();
-            g.drawFittedText (u8 ("Limitador suave e bloqueio DC sempre activos no loop.") + (lim < -0.05f ? u8 ("\nA limitar agora: ") + String (lim, 1) + " dB" : String()),
+            g.drawFittedText (tr ("Limitador suave e bloqueio DC sempre activos no loop.", "Soft limiter and DC blocking always active in the loop.") + (lim < -0.05f ? tr ("\nA limitar agora: ", "\nLimiting now: ") + String (lim, 1) + " dB" : String()),
                               r.toNearestInt(), juce::Justification::topLeft, 3);
         };
         p.layout = [&p, &disp, &lc, &slope, &pf, &pg, &pq, &cp, &hc, &order]
         {
-            p.sections = { { { 0, 0, 0, 0 }, "" }, { { 712, 0, 252, 392 }, "ORDEM DO LOOP" } };
+            p.sections = { { { 0, 0, 0, 0 }, "" }, { { 712, 0, 252, 392 }, tr ("ORDEM DO LOOP", "LOOP ORDER") } };
             disp.setBounds (0, 0, 700, 236);
             row ({ &lc, &slope, &pf, &pg, &pq, &cp, &hc }, { 0, 250, 700, 132 });
             slope.setBounds (slope.getBounds().withSizeKeepingCentre (76, 84));
@@ -561,21 +573,21 @@ private:
 
     void buildMotion (Page& p)
     {
-        auto& dep = p.add (knob (s, id::mod_depth, "DEPTH", "", col::violet, K::Small, false, u8 ("Profundidade da modulação do tempo, em cents de afinação")));
-        auto& rate = p.add (knob (s, id::mod_rate, "RATE", "", col::violet, K::Small, false, u8 ("Velocidade da modulação")));
-        auto& mdiv = p.add (std::make_unique<ChoiceBox> (s, id::mod_div, u8 ("Duração de um ciclo da modulação, sincronizada")));
-        auto& msync = p.add (std::make_unique<ToggleChip> (s, id::mod_sync, "SYNC", col::violet, u8 ("Sincroniza a modulação com o BPM")));
-        auto& off = p.add (knob (s, id::mod_offset, "OFFSET", "", col::violet, K::Small, false, u8 ("Desfasamento da modulação entre L e R (50 % = opostos)")));
-        auto& wow = p.add (knob (s, id::wow, "WOW", "", col::gold, K::Small, false, u8 ("Instabilidade de fita: wow lento + flutter")));
-        auto& shape = p.add (std::make_unique<Segmented> (s, id::mod_shape, juce::StringArray { "SENO", u8 ("TRIÂNGULO"), u8 ("ALEATÓRIO") }, col::violet, u8 ("Forma de onda da modulação")));
-        auto& df = p.add (knob (s, id::disp_freq, "FREQUENCY", "", col::green, K::Small, false, u8 ("Frequência central da dispersão")));
-        auto& ds = p.add (knob (s, id::disp_spread, "SPREAD", "", col::green, K::Small, false, u8 ("Atraso de grupo da dispersão: espalha o eco no tempo (efeito 'chirp')")));
-        auto& fa = p.add (knob (s, id::diff_amount, "AMOUNT", "", col::violet, K::Small, false, u8 ("Difusão: de eco discreto (0) a cauda densa tipo reverb (100 %)")));
-        auto& fs = p.add (knob (s, id::diff_spread, "SPREAD", "", col::violet, K::Small, false, u8 ("Tamanho da difusão em ms")));
+        auto& dep = p.add (knob (s, id::mod_depth, "DEPTH", "", col::violet, K::Small, false, tr ("Profundidade da modulação do tempo, em cents de afinação", "Depth of the time modulation, in cents of pitch")));
+        auto& rate = p.add (knob (s, id::mod_rate, "RATE", "", col::violet, K::Small, false, tr ("Velocidade da modulação", "Modulation speed")));
+        auto& mdiv = p.add (std::make_unique<ChoiceBox> (s, id::mod_div, tr ("Duração de um ciclo da modulação, sincronizada", "Length of one modulation cycle, synced")));
+        auto& msync = p.add (std::make_unique<ToggleChip> (s, id::mod_sync, "SYNC", col::violet, tr ("Sincroniza a modulação com o BPM", "Syncs the modulation to the BPM")));
+        auto& off = p.add (knob (s, id::mod_offset, "OFFSET", "", col::violet, K::Small, false, tr ("Desfasamento da modulação entre L e R (50 % = opostos)", "Modulation phase offset between L and R (50 % = opposite)")));
+        auto& wow = p.add (knob (s, id::wow, "WOW", "", col::gold, K::Small, false, tr ("Instabilidade de fita: wow lento + flutter", "Tape instability: slow wow + flutter")));
+        auto& shape = p.add (std::make_unique<Segmented> (s, id::mod_shape, juce::StringArray { tr ("SENO", "SINE"), tr ("TRIÂNGULO", "TRIANGLE"), tr ("ALEATÓRIO", "RANDOM") }, col::violet, tr ("Forma de onda da modulação", "Modulation waveform")));
+        auto& df = p.add (knob (s, id::disp_freq, "FREQUENCY", "", col::green, K::Small, false, tr ("Frequência central da dispersão", "Dispersion centre frequency")));
+        auto& ds = p.add (knob (s, id::disp_spread, "SPREAD", "", col::green, K::Small, false, tr ("Atraso de grupo da dispersão: espalha o eco no tempo (efeito 'chirp')", "Dispersion group delay: smears the echo in time ('chirp' effect)")));
+        auto& fa = p.add (knob (s, id::diff_amount, "AMOUNT", "", col::violet, K::Small, false, tr ("Difusão: de eco discreto (0) a cauda densa tipo reverb (100 %)", "Diffusion: from a discrete echo (0) to a dense reverb-like tail (100 %)")));
+        auto& fs = p.add (knob (s, id::diff_spread, "SPREAD", "", col::violet, K::Small, false, tr ("Tamanho da difusão em ms", "Diffusion size in ms")));
         advRate = &rate; advModDiv = &mdiv;
         p.layout = [&p, &dep, &rate, &mdiv, &msync, &off, &wow, &shape, &df, &ds, &fa, &fs]
         {
-            p.sections = { { { 0, 0, 964, 190 }, u8 ("MODULAÇÃO") }, { { 0, 202, 474, 190 }, u8 ("DISPERSÃO") }, { { 490, 202, 474, 190 }, u8 ("DIFUSÃO") } };
+            p.sections = { { { 0, 0, 964, 190 }, tr ("MODULAÇÃO", "MODULATION") }, { { 0, 202, 474, 190 }, tr ("DISPERSÃO", "DISPERSION") }, { { 490, 202, 474, 190 }, tr ("DIFUSÃO", "DIFFUSION") } };
             shape.setBounds (150, 6, 260, 26);
             msync.setBounds (420, 6, 60, 26);
             row ({ &dep, &rate, &off, &wow }, { 10, 40, 600, 140 });
@@ -587,17 +599,17 @@ private:
 
     void buildTexture (Page& p)
     {
-        auto& wa = p.add (knob (s, id::warmth, "WARMTH", "", col::gold, K::Small, false, u8 ("Pré-ênfase de agudos antes da saturação (sem drive é transparente)")));
-        auto& dr = p.add (knob (s, id::drive, "DRIVE", "", col::gold, K::Small, false, u8 ("Saturação de fita no loop (com anti-aliasing)")));
-        auto& bi = p.add (knob (s, id::bits, "BIT DEPTH", "", col::blue, K::Small, false, u8 ("Redução de bits (24 = desligado)")));
-        auto& ra = p.add (knob (s, id::rate, "SAMPLE RATE", "", col::blue, K::Small, false, u8 ("Redução da taxa de amostragem (48 kHz = desligado)")));
-        auto& ji = p.add (knob (s, id::jitter, "JITTER", "", col::blue, K::Small, false, u8 ("Instabilidade do relógio digital")));
-        auto& gm = p.add (knob (s, id::grit_mix, "GRIT MIX", "", col::blue, K::Small, false, u8 ("Mistura paralela do grit")));
-        auto& ch = p.add (knob (s, id::character, "CHARACTER", "", col::coral, K::Small, true, u8 ("Macro: fita (direita) ↔ digital (esquerda)")));
-        auto& pd = p.add (knob (s, id::pre_drive, "PRE-DRIVE", "", col::text, K::Small, true, u8 ("Ganho antes do delay (empurra a saturação)")));
+        auto& wa = p.add (knob (s, id::warmth, "WARMTH", "", col::gold, K::Small, false, tr ("Pré-ênfase de agudos antes da saturação (sem drive é transparente)", "High pre-emphasis before saturation (transparent without drive)")));
+        auto& dr = p.add (knob (s, id::drive, "DRIVE", "", col::gold, K::Small, false, tr ("Saturação de fita no loop (com anti-aliasing)", "Tape saturation in the loop (anti-aliased)")));
+        auto& bi = p.add (knob (s, id::bits, "BIT DEPTH", "", col::blue, K::Small, false, tr ("Redução de bits (24 = desligado)", "Bit reduction (24 = off)")));
+        auto& ra = p.add (knob (s, id::rate, "SAMPLE RATE", "", col::blue, K::Small, false, tr ("Redução da taxa de amostragem (48 kHz = desligado)", "Sample-rate reduction (48 kHz = off)")));
+        auto& ji = p.add (knob (s, id::jitter, "JITTER", "", col::blue, K::Small, false, tr ("Instabilidade do relógio digital", "Digital clock instability")));
+        auto& gm = p.add (knob (s, id::grit_mix, "GRIT MIX", "", col::blue, K::Small, false, tr ("Mistura paralela do grit", "Parallel grit mix")));
+        auto& ch = p.add (knob (s, id::character, "CHARACTER", "", col::coral, K::Small, true, tr ("Macro: fita (direita) ↔ digital (esquerda)", "Macro: tape (right) ↔ digital (left)")));
+        auto& pd = p.add (knob (s, id::pre_drive, "PRE-DRIVE", "", col::text, K::Small, true, tr ("Ganho antes do delay (empurra a saturação)", "Gain before the delay (pushes the saturation)")));
         p.layout = [&p, &wa, &dr, &bi, &ra, &ji, &gm, &ch, &pd]
         {
-            p.sections = { { { 0, 0, 300, 190 }, "TAPE SATURATION" }, { { 312, 0, 652, 190 }, "DIGITAL GRIT" }, { { 0, 202, 964, 190 }, u8 ("CARÁCTER E ENTRADA") } };
+            p.sections = { { { 0, 0, 300, 190 }, "TAPE SATURATION" }, { { 312, 0, 652, 190 }, "DIGITAL GRIT" }, { { 0, 202, 964, 190 }, tr ("CARÁCTER E ENTRADA", "CHARACTER AND INPUT") } };
             row ({ &wa, &dr }, { 10, 40, 280, 140 });
             row ({ &bi, &ra, &ji, &gm }, { 322, 40, 632, 140 });
             row ({ &ch, &pd }, { 10, 240, 300, 140 });
@@ -606,16 +618,16 @@ private:
 
     void buildUtilities (Page& p)
     {
-        auto& on = p.add (std::make_unique<ToggleChip> (s, id::duck, "DUCK", col::coral, u8 ("Liga o ducker")));
-        auto& th = p.add (knob (s, id::duck_thresh, "THRESHOLD", "", col::coral, K::Small, false, u8 ("Nível da fonte a partir do qual os ecos baixam")));
-        auto& am = p.add (knob (s, id::duck_amount, "AMOUNT", "", col::coral, K::Small, false, u8 ("Quanto os ecos baixam")));
-        auto& at = p.add (knob (s, id::duck_attack, "ATTACK", "", col::coral, K::Small, false, u8 ("Rapidez com que os ecos baixam")));
-        auto& ho = p.add (knob (s, id::duck_hold, "HOLD", "", col::coral, K::Small, false, u8 ("Tempo de espera antes de soltar")));
-        auto& re = p.add (knob (s, id::duck_release, "RELEASE", "", col::coral, K::Small, false, u8 ("Rapidez com que os ecos voltam")));
-        auto& law = p.add (std::make_unique<Segmented> (s, id::mix_law, juce::StringArray { "LINEAR", u8 ("POTÊNCIA CONST.") }, col::cyan, u8 ("Curva do MIX: potência constante mantém o volume percebido")));
-        auto& wt = p.add (knob (s, id::wet_trim, "WET TRIM", "", col::text, K::Small, true, u8 ("Ganho só dos ecos")));
-        auto& ot = p.add (knob (s, id::out_trim, "OUTPUT", "", col::text, K::Small, true, u8 ("Ganho de saída")));
-        auto& mx = p.add (knob (s, id::mix, "MIX", "", col::text, K::Small, false, u8 ("Equilíbrio seco/molhado")));
+        auto& on = p.add (std::make_unique<ToggleChip> (s, id::duck, "DUCK", col::coral, tr ("Liga o ducker", "Turns the ducker on")));
+        auto& th = p.add (knob (s, id::duck_thresh, "THRESHOLD", "", col::coral, K::Small, false, tr ("Nível da fonte a partir do qual os ecos baixam", "Source level above which the echoes duck")));
+        auto& am = p.add (knob (s, id::duck_amount, "AMOUNT", "", col::coral, K::Small, false, tr ("Quanto os ecos baixam", "How much the echoes duck")));
+        auto& at = p.add (knob (s, id::duck_attack, "ATTACK", "", col::coral, K::Small, false, tr ("Rapidez com que os ecos baixam", "How fast the echoes duck")));
+        auto& ho = p.add (knob (s, id::duck_hold, "HOLD", "", col::coral, K::Small, false, tr ("Tempo de espera antes de soltar", "Hold time before releasing")));
+        auto& re = p.add (knob (s, id::duck_release, "RELEASE", "", col::coral, K::Small, false, tr ("Rapidez com que os ecos voltam", "How fast the echoes come back")));
+        auto& law = p.add (std::make_unique<Segmented> (s, id::mix_law, juce::StringArray { "LINEAR", tr ("POTÊNCIA CONST.", "CONST. POWER") }, col::cyan, tr ("Curva do MIX: potência constante mantém o volume percebido", "MIX curve: constant power keeps the perceived volume")));
+        auto& wt = p.add (knob (s, id::wet_trim, "WET TRIM", "", col::text, K::Small, true, tr ("Ganho só dos ecos", "Gain of the echoes only")));
+        auto& ot = p.add (knob (s, id::out_trim, "OUTPUT", "", col::text, K::Small, true, tr ("Ganho de saída", "Output gain")));
+        auto& mx = p.add (knob (s, id::mix, "MIX", "", col::text, K::Small, false, tr ("Equilíbrio seco/molhado", "Dry/wet balance")));
         juce::OwnedArray<juce::TextButton>* sizes = &sizeBtns;
         for (float sc : { 0.75f, 1.0f, 1.25f, 1.5f, 2.0f })
         {
@@ -626,23 +638,33 @@ private:
             b->onClick = [this, sc] { if (onScale) onScale (sc); };
             p.addAndMakeVisible (b);
         }
-        auto& logout = p.add (std::make_unique<juce::TextButton> (u8 ("TERMINAR SESSÃO")));
+        auto& logout = p.add (std::make_unique<juce::TextButton> (tr ("TERMINAR SESSÃO", "SIGN OUT")));
         logout.getProperties().set ("fontH", 11.0f);
-        logout.setTooltip (u8 ("Esquece a senha neste computador (pede-a de novo ao abrir)"));
+        logout.setTooltip (tr ("Esquece a senha neste computador (pede-a de novo ao abrir)", "Forgets the password on this computer (asks again when opening)"));
         logout.onClick = [] { lic::License::get().lock(); };
+        auto& langSw = p.add (std::make_unique<piradex::i18n::LanguageSwitch>());
+        langSw.accent = col::cyan;
+        langSw.background = col::deep;
+        langSw.outline = col::line2;
+        langSw.text = col::text;
+        langSw.textDim = col::muted;
+        langSw.hoverFill = col::panel2;
         p.extraPaint = [&p] (juce::Graphics& g)
         {
+            // idioma (rótulo bilingue para quem estiver "perdido" no outro idioma)
+            label (g, tr ("IDIOMA · LANGUAGE", "LANGUAGE · IDIOMA"), { 502.0f, 318.0f, 206.0f, 14.0f }, 11.0f, W::Semi, col::muted, juce::Justification::centredLeft, 0.18f);
             auto r = p.sections[3].r.toFloat().reduced (14.0f).withTrimmedTop (22.0f);
             label (g, "DELEX by Piradex  v" JucePlugin_VersionString, r.removeFromTop (20.0f), 15.0f, W::Bold, col::text, juce::Justification::centredLeft, 0.02f);
             g.setColour (col::text2); g.setFont (font (13.0f));
-            g.drawFittedText (u8 ("Delay espacial estéreo · VST3 / AU\nwww.beatfreakstudio.com\nSuporte: juninhopiradex@hotmail.com"),
+            g.drawFittedText (tr ("Delay espacial estéreo · VST3 / AU\nwww.beatfreakstudio.com\nSuporte: juninhopiradex@hotmail.com", "Stereo spatial delay · VST3 / AU / AAX\nwww.beatfreakstudio.com\nSupport: juninhopiradex@hotmail.com"),
                               r.removeFromTop (60.0f).toNearestInt(), juce::Justification::topLeft, 3);
             label (g, lic::License::get().statusText(), r.removeFromTop (18.0f), 12.5f, W::Semi, col::cyan, juce::Justification::centredLeft, 0.02f);
         };
-        p.layout = [&p, &on, &th, &am, &at, &ho, &re, &law, &wt, &ot, &mx, sizes, &logout]
+        p.layout = [&p, &on, &th, &am, &at, &ho, &re, &law, &wt, &ot, &mx, sizes, &logout, &langSw]
         {
             logout.setBounds (746, 346, 130, 28);
-            p.sections = { { { 0, 0, 964, 190 }, "DUCKER" }, { { 0, 202, 474, 190 }, "MISTURA E GANHO" }, { { 490, 202, 230, 190 }, "INTERFACE" }, { { 732, 202, 232, 190 }, "SOBRE" } };
+            langSw.setBounds (502, 338, 110, 30);
+            p.sections = { { { 0, 0, 964, 190 }, "DUCKER" }, { { 0, 202, 474, 190 }, tr ("MISTURA E GANHO", "MIX AND GAIN") }, { { 490, 202, 230, 190 }, "INTERFACE" }, { { 732, 202, 232, 190 }, tr ("SOBRE", "ABOUT") } };
             on.setBounds (110, 4, 62, 26);
             row ({ &th, &am, &at, &ho, &re }, { 10, 40, 760, 140 });
             law.setBounds (16, 232, 240, 28);
@@ -692,6 +714,7 @@ private:
     }
 
     // ------------------------------------------------------------------ senha
+    piradex::i18n::LanguageSwitch headerLang;
     LoginOverlay login;
 
     // ------------------------------------------------------------------ browser
@@ -758,9 +781,13 @@ DelexEditor::DelexEditor (DelexProcessor& p) : AudioProcessorEditor (&p), proc (
 {
     setLookAndFeel (&lnf);
     juce::LookAndFeel::setDefaultLookAndFeel (&lnf);
-    ui = std::make_unique<delex::ui::DelexUI> (p);
-    ui->onScale = [this] (float sc) { setScale (sc); };
-    addAndMakeVisible (*ui);
+    piradex::i18n::reload();          // outro plugin Piradex pode ter mudado o idioma
+    buildUi();
+    // mudar de idioma reconstrói a interface (depois do clique que o pediu terminar)
+    langWatch.onChange = [safe = juce::Component::SafePointer<DelexEditor> (this)]
+    {
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->buildUi(); safe->resized(); } });
+    };
 
     setResizable (true, true);
     if (auto* c = getConstrainer())
@@ -772,8 +799,18 @@ DelexEditor::DelexEditor (DelexProcessor& p) : AudioProcessorEditor (&p), proc (
     setSize ((int) std::lround (kW * sc), (int) std::lround (kH * sc));
 }
 
+void DelexEditor::buildUi()
+{
+    ui.reset();
+    ui = std::make_unique<delex::ui::DelexUI> (proc);
+    ++uiBuilds;
+    ui->onScale = [this] (float sc) { setScale (sc); };
+    addAndMakeVisible (*ui);
+}
+
 DelexEditor::~DelexEditor()
 {
+    langWatch.onChange = nullptr;
     ui.reset();
     juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
     setLookAndFeel (nullptr);

@@ -6,6 +6,8 @@
 #pragma once
 
 #include "Params.h"
+#include "i18n/PiradexLanguage.h"
+#include <cstring>
 
 namespace delex
 {
@@ -240,22 +242,114 @@ inline const std::vector<FactoryPreset>& factoryPresets()
 }
 
 // ---------------------------------------------------------------- estilos rápidos
-struct Style { const char* name; const char* tip; const char* data; };
+// ---------------------------------------------------------------------------
+// Textos dos presets/estilos em inglês (o nome do preset é o mesmo nos dois idiomas)
+struct PresetTextEn { const char* name; const char* description; const char* use; const char* tags; };
+inline const PresetTextEn* presetEnglish (const char* name)
+{
+    static const PresetTextEn t[] {
+        { "Slap Curto", "Short, warm slapback that adds body to the vocal without pushing it back.", "Lead vocal (rap, R&B, rock) on an insert.", "vocal, slapback, short" },
+        { "Voz à Frente 1/8", "Filtered eighth note with ducking: the echoes only appear in the gaps.", "Lead vocal, aux send at 100 % wet.", "vocal, ducking, eighth" },
+        { "Voz à Frente 1/4", "Dark quarter note with strong ducking and a touch of modulation.", "Ballads and slow choruses.", "vocal, ducking, quarter" },
+        { "Eco de Rádio", "Narrow-band echo with a mid peak and saturation.", "Pre-choruses, effect vocals, intros.", "vocal, telephone, radio, filtered" },
+        { "Dupla Larga", "Short, modulated stereo doubling (Haas effect).", "Backing vocals and doubles.", "vocal, double, width, haas" },
+        { "Throw de Refrão", "Long ping-pong to automate on key words.", "Automate the send on the last word of the phrase.", "vocal, throw, ping-pong" },
+        { "Sussurro Difuso", "Echoes that dissolve into a soft tail.", "Whispered vocals, bridges.", "vocal, diffuse, soft" },
+        { "Sincopa Dourada", "Dotted 1/4 ping-pong with ducking: opens the vocal without drowning it.", "Vocal or lead in Afro House, send at 100 % wet.", "vocal, ping-pong, ducking, syncopated" },
+        { "Ping-Pong Pontuado", "Filtered dotted eighth bouncing between sides.", "Percussion, vocal chops, plucks.", "ping-pong, dotted, groove" },
+        { "Tambor Distante", "Percussion with diffusion and a dark tail, far back in the mix.", "Congas, djembe, toms.", "percussion, diffusion, distant" },
+        { "Noite em Luanda", "Atmospheric tail with slow rotation.", "Pads, vocals and breakdowns.", "atmosphere, rotation, tail" },
+        { "Groove Espiral", "Triplets with 60° rotation: the echo spins in space.", "Open hats, marimbas, kalimbas.", "triplet, rotation, movement" },
+        { "Shaker Fantasma", "Short, very wide 1/16 for shakers.", "Shakers, hi-hats, tops.", "shaker, wide, short" },
+        { "Kizomba Suave", "Warm quarter note with light ducking and slow modulation.", "Lead vocal in Kizomba and Zouk.", "vocal, warm, ducking" },
+        { "Abraço Lento", "Long, dark, enveloping echoes.", "Choruses and phrase endings.", "long, dark, enveloping" },
+        { "Guitarra Kizomba", "Ping-pong with a tape flavour and light chorus.", "Clean guitars and keys.", "guitar, ping-pong, tape" },
+        { "Semba Eco", "Saturated, direct eighth note.", "Semba guitars and vocals.", "eighth, saturated, direct" },
+        { "Cetim Estéreo", "Wide, silky triplets with rotation.", "Pads, choirs, strings.", "triplet, wide, silky" },
+        { "Throw 1/8D", "The classic dotted-eighth ping-pong throw.", "Ad-libs and verse endings.", "throw, ad-lib, ping-pong" },
+        { "Hi-Hat Ricochete", "Bright sixteenths ricocheting around.", "Hi-hats and rolls.", "hi-hat, bright, ping-pong" },
+        { "808 Sombra", "Low, mono, saturated echo for the 808.", "808 and basses (low mix).", "808, mono, low" },
+        { "Ad-lib Lo-Fi", "Degraded digital echoes for ad-libs.", "Ad-libs, background vocals.", "lo-fi, ad-lib, digital" },
+        { "Trap Escuro", "Dark, wide tail with ducking.", "Melodies and vocals in melodic trap.", "dark, wide, ducking" },
+        { "Voz Rasgada", "Short, heavily saturated echo.", "Aggressive vocals and drill.", "saturated, aggressive, short" },
+        { "Dub de Caixa", "Repeating snare with tape and a dark tail.", "Snare, rimshot.", "snare, dub, tape" },
+        { "Fill Rítmico", "Sixteenths that fill the gaps in the groove.", "Drum loops, fills.", "rhythmic, fill, ping-pong" },
+        { "Sala Dupla", "Short, dense reflections, almost a room.", "Acoustic drums, overheads.", "room, short, diffuse" },
+        { "Tom Cascata", "Triplets with negative rotation.", "Toms and fills.", "triplet, toms, rotation" },
+        { "Ghost Snare", "Thin, diffuse echo behind the snare.", "Ghost notes, clap.", "snare, diffuse, subtle" },
+        { "Fita Vintage", "Tape echo with wow and worn highs.", "Clean guitar, rhodes.", "tape, vintage, wow" },
+        { "Chorus-Delay", "Short modulated delay that sounds like a chorus.", "Clean guitars, arpeggios.", "chorus, modulation, short" },
+        { "Surf Longo", "Dotted eighth with tape, surf style.", "Surf guitars, leads.", "surf, tape, dotted" },
+        { "Clean Wide", "Clean stereo with different L/R times.", "Rhythm guitars.", "clean, wide, stereo" },
+        { "Feedback Cantante", "High feedback with a resonant peak that sings.", "Solos and long notes.", "resonant, feedback, solo" },
+        { "Arp Espacial", "Dotted ping-pong for arpeggios.", "Arpeggios and sequences.", "arpeggio, ping-pong, spatial" },
+        { "Pad Rotativo", "72° rotation and diffusion: the pad spins around you.", "Pads and textures.", "pad, rotation, diffusion" },
+        { "Lead Dobrado", "60 ms stereo double for leads.", "Leads and synth vocals.", "lead, double, wide" },
+        { "Pluck Cristal", "Bright echoes with dispersion that 'chirps'.", "Plucks and bells.", "pluck, bright, dispersion" },
+        { "Bass Gentil", "Discreet mono echo on the lows.", "Synth basses.", "bass, mono, discreet" },
+        { "Nuvem", "Echoes that become a diffuse cloud.", "Pianos, pads, ethereal vocals.", "cloud, diffuse, long" },
+        { "Catedral de Ecos", "Huge tail with 45° rotation.", "Ambiences, cinematic intros.", "huge, rotation, tail" },
+        { "Maré Lenta", "Slow, deep random modulation.", "Drones and textures.", "random, slow, drone" },
+        { "Neblina", "Low dispersion and dark diffusion.", "Ambient pianos and guitars.", "dispersion, dark, mist" },
+        { "Céu Infinito", "Almost infinite, very wide feedback.", "Sustained notes, endings.", "infinite, wide, sustained" },
+        { "Cassete Gasta", "Tired tape with lots of wow and worn highs.", "Lo-fi beats, pianos.", "cassette, wow, worn" },
+        { "8-bit Eco", "6-bit, 11 kHz echo.", "Chiptune, robotic vocals.", "8-bit, digital, retro" },
+        { "Rádio AM", "Narrow band, reduced bits and saturation.", "Period samples and vocals.", "radio, narrow band, retro" },
+        { "Poeira Digital", "Digital degradation with jitter.", "Textures and transitions.", "digital, jitter, dust" },
+        { "Bitcrush Dub", "Dub with bitcrush in parallel mix.", "Percussion and vocals in digital dub.", "bitcrush, dub, parallel" },
+        { "Dub Clássico", "Tape, high feedback and cut lows.", "Snare, vocals, skanks.", "dub, tape, classic" },
+        { "Dub Profundo", "Long, dark, saturated half note.", "Vocals and horns in dub.", "dub, dark, long" },
+        { "Sirene Dub", "Resonant peak and modulation: it rises on its own.", "Siren effects, transitions.", "siren, resonant, modulation" },
+        { "Steppers", "Ping-pong eighths with tape.", "Skanks and percussion.", "steppers, ping-pong, tape" },
+        { "Sound System", "Warm sound-system saturation.", "Melodica, vocals, horns.", "sound system, warm, saturated" },
+        { "Freeze Riser", "Builds a dense tail: press FREEZE at the end of the phrase.", "Builds and risers.", "freeze, riser, build" },
+        { "Wash Out", "Everything washes into a huge tail.", "End of a section, before the drop.", "wash, tail, transition" },
+        { "Stop Drop", "Changes the time during the tail for a tape-stop effect.", "Automate Time while it plays.", "tape, glide, stop" },
+        { "Túnel", "Narrow band spinning 90° between sides.", "Transition filters, breakdowns.", "tunnel, rotation, filtered" },
+        { "Brilho Sutil", "Widens only the highs with very short reflections.", "Mix bus (low mix).", "subtle, width, highs" },
+        { "Largura Fina", "Discreet width with mono lows.", "Buses and stems.", "width, mono-safe, subtle" },
+        { "Profundidade Mínima", "An almost invisible layer of depth.", "Vocal or instrument bus.", "depth, subtle, diffuse" } };
+    for (auto& e : t) if (std::strcmp (e.name, name) == 0) return &e;
+    return nullptr;
+}
+inline juce::String presetDescription (const FactoryPreset& p)
+{
+    if (! piradex::i18n::isPortuguese()) if (auto* e = presetEnglish (p.name)) return juce::String::fromUTF8 (e->description);
+    return juce::String::fromUTF8 (p.description);
+}
+inline juce::String presetUse (const FactoryPreset& p)
+{
+    if (! piradex::i18n::isPortuguese()) if (auto* e = presetEnglish (p.name)) return juce::String::fromUTF8 (e->use);
+    return juce::String::fromUTF8 (p.use);
+}
+inline juce::String presetTags (const FactoryPreset& p)
+{
+    if (! piradex::i18n::isPortuguese()) if (auto* e = presetEnglish (p.name)) return juce::String::fromUTF8 (e->tags);
+    return juce::String::fromUTF8 (p.tags);
+}
+
+struct Style { const char* name; const char* tip; const char* data; const char* tipEn = ""; };
+inline juce::String styleTip (const struct Style& st);
 
 inline const std::vector<Style>& styles()
 {
     static const std::vector<Style> s {
-        { "CLEAN",     "Eco limpo e directo", "feedback=35;space=10;tone=0;character=0;warmth=0;routing=Dual;rotation=0" },
-        { "PING-PONG", "Ecos alternados entre lados", "routing=Ping-Pong;feedback=45;space=30;tone=-10" },
-        { "WIDE",      "Tempos L/R diferentes e rotação", "routing=Dual;r_ratio=1.33;space=75;rotation=20;feedback=40" },
-        { "DUB",       "Feedback alto, fita e escuro", "feedback=70;character=45;tone=-35;low_cut=200;wow=20" },
-        { "DREAM",     "Difuso, largo e modulado", "feedback=65;diff_amount=70;diff_spread=25;space=80;tone=-25;mod_depth=8;mod_rate=0.2" },
-        { "TAPE",      "Saturação e wow de fita", "character=60;warmth=50;wow=35;tone=-20;feedback=45" },
-        { "DIGITAL",   "Bits e sample rate reduzidos", "character=-55;bits=10;rate=16000;feedback=45" },
-        { "RHYTHMIC",  "Ping-pong com relação 3:2", "feedback=50;routing=Ping-Pong;r_ratio=1.5;tone=-5" },
-        { "FREEZE",    "Cauda densa congelada", "feedback=80;diff_amount=50;space=70;freeze=1" },
+        { "CLEAN",     "Eco limpo e directo", "feedback=35;space=10;tone=0;character=0;warmth=0;routing=Dual;rotation=0", "Clean, direct echo" },
+        { "PING-PONG", "Ecos alternados entre lados", "routing=Ping-Pong;feedback=45;space=30;tone=-10", "Echoes alternating between sides" },
+        { "WIDE",      "Tempos L/R diferentes e rotação", "routing=Dual;r_ratio=1.33;space=75;rotation=20;feedback=40", "Different L/R times and rotation" },
+        { "DUB",       "Feedback alto, fita e escuro", "feedback=70;character=45;tone=-35;low_cut=200;wow=20", "High feedback, tape and dark" },
+        { "DREAM",     "Difuso, largo e modulado", "feedback=65;diff_amount=70;diff_spread=25;space=80;tone=-25;mod_depth=8;mod_rate=0.2", "Diffuse, wide and modulated" },
+        { "TAPE",      "Saturação e wow de fita", "character=60;warmth=50;wow=35;tone=-20;feedback=45", "Tape saturation and wow" },
+        { "DIGITAL",   "Bits e sample rate reduzidos", "character=-55;bits=10;rate=16000;feedback=45", "Reduced bits and sample rate" },
+        { "RHYTHMIC",  "Ping-pong com relação 3:2", "feedback=50;routing=Ping-Pong;r_ratio=1.5;tone=-5", "Ping-pong with a 3:2 ratio" },
+        { "FREEZE",    "Cauda densa congelada", "feedback=80;diff_amount=50;space=70;freeze=1", "Dense frozen tail" },
     };
     return s;
+}
+
+inline juce::String styleTip (const Style& st)
+{
+    return juce::String::fromUTF8 (piradex::i18n::isPortuguese() || *st.tipEn == 0 ? st.tip : st.tipEn);
 }
 
 // Parâmetros que um estilo NÃO altera (tempo, mistura, ducking, ganhos)

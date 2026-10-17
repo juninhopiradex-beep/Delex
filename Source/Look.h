@@ -4,6 +4,8 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include "i18n/PiradexLanguageUI.h"
+using piradex::i18n::tr;
 #include "BinaryData.h"
 
 namespace delex::ui

@@ -15,13 +15,13 @@ public:
 
     explicit PresetBrowser (DelexProcessor& p) : proc (p)
     {
-        search.setTextToShowWhenEmpty (juce::String::fromUTF8 ("Nome, fonte ou resultado…"), col::dim);
+        search.setTextToShowWhenEmpty (tr ("Nome, fonte ou resultado…", "Name, source or result…"), col::dim);
         search.setFont (font (14.0f));
         search.setIndents (10, 7);
         search.onTextChange = [this] { rebuild(); };
         addAndMakeVisible (search);
 
-        const juce::StringArray cats = [] { juce::StringArray c { juce::String::fromUTF8 ("★ Favoritos"), "Todos" }; c.addArray (presetCategories()); c.add ("Utilizador"); return c; }();
+        const juce::StringArray cats = [] { juce::StringArray c { tr ("★ Favoritos", "★ Favourites"), tr ("Todos", "All") }; c.addArray (presetCategories()); c.add (tr ("Utilizador", "User")); return c; }();
         for (int i = 0; i < cats.size(); ++i)
         {
             auto* b = catButtons.add (new juce::TextButton (cats[i]));
@@ -42,24 +42,24 @@ public:
         list.setOutlineThickness (0);
         addAndMakeVisible (list);
 
-        load.setButtonText ("CARREGAR");
+        load.setButtonText (tr ("CARREGAR", "LOAD"));
         load.getProperties().set ("solid", true);
         load.getProperties().set ("fontH", 14.0f);
         load.setToggleState (true, juce::dontSendNotification);
         load.onClick = [this] { loadSelected(); };
         addAndMakeVisible (load);
 
-        saveAs.setButtonText (juce::String::fromUTF8 ("GUARDAR COMO…"));
+        saveAs.setButtonText (tr ("GUARDAR COMO…", "SAVE AS…"));
         saveAs.onClick = [this] { askSave(); };
         addAndMakeVisible (saveAs);
 
-        openFolder.setButtonText ("PASTA");
-        openFolder.setTooltip ("Abrir a pasta dos presets do utilizador");
+        openFolder.setButtonText (tr ("PASTA", "FOLDER"));
+        openFolder.setTooltip (tr ("Abrir a pasta dos presets do utilizador", "Open the user presets folder"));
         openFolder.onClick = [this] { auto d = proc.userPresetFolder(); d.createDirectory(); d.startAsProcess(); };
         addAndMakeVisible (openFolder);
 
         close.outline = true;
-        close.setTooltip ("Fechar");
+        close.setTooltip (tr ("Fechar", "Close"));
         close.onClick = [this] { if (onClose) onClose(); };
         addAndMakeVisible (close);
 
@@ -84,12 +84,12 @@ public:
         icons::logo (g, { 18.0f, 18.0f, 18.0f, 16.0f });
         label (g, "DELEX", { 44.0f, 13.0f, 90.0f, 26.0f }, 23.0f, W::Bold, col::text, Justification::centredLeft, 0.22f);
         g.setColour (col::muted); g.setFont (font (13.0f));
-        g.drawText (String::fromUTF8 ("Presets · ") + String ((int) factoryPresets().size()) + String::fromUTF8 (" de fábrica · ") + String (userFiles.size()) + " do utilizador",
+        g.drawText (tr ("Presets · ", "Presets · ") + String ((int) factoryPresets().size()) + tr (" de fábrica · ", " factory · ") + String (userFiles.size()) + tr (" do utilizador", " user"),
                     Rectangle<float> (128.0f, 18.0f, 400.0f, 18.0f), Justification::centredLeft);
 
         g.setColour (col::bg); g.fillRect (Rectangle<float> (0, 53, 220, r.getHeight()));
         g.setColour (col::line); g.drawVerticalLine (220, 53, (float) getHeight());
-        label (g, "PROCURAR", { 12.0f, 64.0f, 190.0f, 14.0f }, 11.0f, W::Semi, col::muted, Justification::centredLeft, 0.18f);
+        label (g, tr ("PROCURAR", "SEARCH"), { 12.0f, 64.0f, 190.0f, 14.0f }, 11.0f, W::Semi, col::muted, Justification::centredLeft, 0.18f);
 
         g.setColour (col::bg); g.fillRect (Rectangle<float> (221, 53, (float) getWidth() - 471, r.getHeight()));
         label (g, heading.toUpperCase(), { 237.0f, 64.0f, 400.0f, 14.0f }, 11.0f, W::Semi, col::muted, Justification::centredLeft, 0.18f);
@@ -109,7 +109,7 @@ public:
             if (e->use.isNotEmpty())
             {
                 dd.removeFromTop (6.0f);
-                label (g, "USO SUGERIDO", dd.removeFromTop (16.0f), 11.0f, W::Semi, col::muted, Justification::centredLeft, 0.18f);
+                label (g, tr ("USO SUGERIDO", "SUGGESTED USE"), dd.removeFromTop (16.0f), 11.0f, W::Semi, col::muted, Justification::centredLeft, 0.18f);
                 g.setColour (col::text2); g.setFont (font (14.0f));
                 g.drawFittedText (e->use, dd.removeFromTop (40.0f).toNearestInt(), Justification::topLeft, 3, 1.0f);
             }
@@ -134,7 +134,7 @@ public:
         else
         {
             g.setColour (col::muted); g.setFont (font (14.0f));
-            g.drawFittedText (String::fromUTF8 ("Escolhe um preset na lista. Duplo clique carrega logo."), dd.removeFromTop (60.0f).toNearestInt(), Justification::topLeft, 3);
+            g.drawFittedText (tr ("Escolhe um preset na lista. Duplo clique carrega logo.", "Choose a preset from the list. Double-click loads it straight away."), dd.removeFromTop (60.0f).toNearestInt(), Justification::topLeft, 3);
         }
     }
 
@@ -197,20 +197,20 @@ private:
         for (int i = 0; i < (int) fp.size(); ++i)
         {
             Entry e { juce::String::fromUTF8 (fp[(size_t) i].name), juce::String::fromUTF8 (fp[(size_t) i].category),
-                      juce::String::fromUTF8 (fp[(size_t) i].description), juce::String::fromUTF8 (fp[(size_t) i].use),
-                      juce::String::fromUTF8 (fp[(size_t) i].tags), timeOf (fp[(size_t) i].data), summaryOf (fp[(size_t) i].data), i, {} };
+                      presetDescription (fp[(size_t) i]), presetUse (fp[(size_t) i]),
+                      presetTags (fp[(size_t) i]), timeOf (fp[(size_t) i].data), summaryOf (fp[(size_t) i].data), i, {} };
             const bool inCat = category == 1 || (category == 0 && proc.isFavourite (e.name))
                             || (category >= 2 && category < 2 + ncat && e.category == presetCategories()[category - 2]);
             if ((q.isNotEmpty() || inCat) && matches (e)) entries.push_back (e);
         }
         for (auto& f : userFiles)
         {
-            Entry e { f.getFileNameWithoutExtension(), "Utilizador", juce::String::fromUTF8 ("Preset guardado por ti."), {}, "utilizador", {}, {}, -1, f };
+            Entry e { f.getFileNameWithoutExtension(), tr ("Utilizador", "User"), tr ("Preset guardado por ti.", "Preset saved by you."), {}, tr ("utilizador", "user"), {}, {}, -1, f };
             const bool inCat = category == 1 || category == 2 + ncat || (category == 0 && proc.isFavourite (e.name));
             if ((q.isNotEmpty() || inCat) && matches (e)) entries.push_back (e);
         }
 
-        heading = q.isNotEmpty() ? juce::String::fromUTF8 ("Resultados para “") + search.getText().trim() + juce::String::fromUTF8 ("”")
+        heading = q.isNotEmpty() ? tr ("Resultados para “", "Results for “") + search.getText().trim() + juce::String::fromUTF8 ("”")
                                  : catButtons[category]->getButtonText();
         for (int i = 0; i < catButtons.size(); ++i)
         {
@@ -240,10 +240,10 @@ private:
 
     void askSave()
     {
-        auto* w = new juce::AlertWindow ("Guardar preset", "Nome do preset:", juce::MessageBoxIconType::NoIcon, this);
+        auto* w = new juce::AlertWindow (tr ("Guardar preset", "Save preset"), tr ("Nome do preset:", "Preset name:"), juce::MessageBoxIconType::NoIcon, this);
         w->addTextEditor ("name", proc.currentPresetName());
-        w->addButton ("Guardar", 1, juce::KeyPress (juce::KeyPress::returnKey));
-        w->addButton ("Cancelar", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        w->addButton (tr ("Guardar", "Save"), 1, juce::KeyPress (juce::KeyPress::returnKey));
+        w->addButton (tr ("Cancelar", "Cancel"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
         juce::Component::SafePointer<PresetBrowser> safe (this);
         w->enterModalState (true, juce::ModalCallbackFunction::create ([safe, w] (int r)
         {

@@ -22,9 +22,11 @@ else()
 endif()
 
 if(APPLE)
-    set(DLX_FORMATS VST3 AU)
+    set(DLX_FORMATS VST3 AU AAX)
+elseif(WIN32)
+    set(DLX_FORMATS VST3 AAX)
 else()
-    set(DLX_FORMATS VST3)
+    set(DLX_FORMATS VST3)            # Linux: só desenvolvimento/testes
 endif()
 
 juce_add_plugin(Delex
@@ -44,7 +46,8 @@ juce_add_plugin(Delex
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD FALSE
     VST3_CATEGORIES Fx Delay
-    AU_MAIN_TYPE kAudioUnitType_Effect)
+    AU_MAIN_TYPE kAudioUnitType_Effect
+    AAX_CATEGORY Delay)   # AAX: SDK incluído na JUCE 8; o Pro Tools normal exige assinatura PACE
 
 juce_add_binary_data(DelexAssets SOURCES
     Resources/BarlowSemiCondensed-Medium.ttf
@@ -55,7 +58,8 @@ juce_add_binary_data(DelexAssets SOURCES
 target_sources(Delex PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
-    Source/License.cpp)
+    Source/License.cpp
+    Source/i18n/PiradexLanguage.cpp)
 
 target_include_directories(Delex PRIVATE Source)
 

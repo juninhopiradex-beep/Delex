@@ -37,15 +37,67 @@ static void feedNoise (DelexProcessor& p, int blocks, int bs, float& peak, bool&
     }
 }
 
-static void snapshot (juce::AudioProcessorEditor& ed, const juce::String& file)
+static void saveShot (juce::AudioProcessorEditor& ed, const juce::String& file)
 {
-    pump (400);
     auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
     juce::File f (juce::File::getCurrentWorkingDirectory().getChildFile (file));
     f.deleteFile();
     juce::FileOutputStream out (f);
     juce::PNGImageFormat().writeImageToStream (img, out);
     std::printf ("  captura: %s (%dx%d)\n", file.toRawUTF8(), img.getWidth(), img.getHeight());
+}
+
+// captura em português e, logo a seguir, a mesma janela em inglês (a interface é reconstruída)
+static void snapshot (juce::AudioProcessorEditor& ed, const juce::String& file, bool alsoEnglish = true)
+{
+    namespace L = piradex::i18n;
+    L::set (L::Language::PT, false);
+    pump (400);
+    saveShot (ed, file);
+    if (! alsoEnglish) return;
+    L::set (L::Language::EN, false);
+    pump (500);
+    saveShot (ed, file.replace (".png", "_en.png"));
+    L::set (L::Language::PT, false);
+    pump (300);
+}
+
+// Idioma PT/EN: tr(), aviso de troca, ficheiro Piradex, reconstrução da interface, nomes de automação fixos
+static void testLanguage()
+{
+    namespace L = piradex::i18n;
+    std::printf ("Idioma PT/EN\n");
+    const auto before = L::current();
+    L::set (L::Language::PT, false);
+    check (L::tr ("Repetições", "Repeats") == juce::String::fromUTF8 ("Repetições"), "tr devolve PT");
+    check (delex::presetDescription (delex::factoryPresets()[0]).startsWith ("Slapback"), "descrição de preset em português");
+    L::set (L::Language::EN, false);
+    check (L::tr ("Repetições", "Repeats") == "Repeats", "tr devolve EN");
+    check (delex::presetDescription (delex::factoryPresets()[0]).startsWith ("Short"), "descrição de preset em inglês");
+    struct Count : L::Listener { int n = 0; void languageChanged() override { ++n; } } count;
+    L::addListener (&count);
+    L::set (L::Language::PT, false);
+    L::set (L::Language::PT, false);
+    L::removeListener (&count);
+    check (count.n == 1, "aviso de troca só quando muda", count.n, 1);
+    L::set (L::Language::EN, true);
+    L::set (L::Language::PT, false);
+    L::reload();
+    check (L::current() == L::Language::EN, "idioma guardado em Piradex.settings");
+    DelexProcessor p;
+    const auto name = p.apvts.getParameter ("feedback")->getName (64);
+    {
+        std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+        ed->setSize (1000, 640);
+        const int first = dynamic_cast<DelexEditor*> (ed.get())->uiBuildCount();
+        L::set (L::Language::PT, false); pump (100);
+        L::set (L::Language::EN, false); pump (100);
+        check (dynamic_cast<DelexEditor*> (ed.get())->uiBuildCount() == first + 2, "interface reconstruída ao mudar de idioma", dynamic_cast<DelexEditor*> (ed.get())->uiBuildCount() - first, 2);
+    }
+    pump (50);
+    check (p.apvts.getParameter ("feedback")->getName (64) == name, "nomes de automação fixos");
+    L::set (before, true);
+    L::set (L::Language::PT, false);
 }
 
 // encontra um botão visível pelo texto e clica nele (o editor não está no ambiente de trabalho,
@@ -65,6 +117,7 @@ static bool clickButton (juce::Component& root, const juce::String& text)
 int main()
 {
     juce::ScopedJuceInitialiser_GUI init;
+    testLanguage();
     std::printf ("DELEX — teste de integração do plugin\n");
     std::mt19937 g (11);
 
@@ -218,9 +271,16 @@ int main()
             for (auto* cc : c->getChildren())
                 if (auto* b = dynamic_cast<juce::Button*> (cc))
                     if (b->getName() == "preset") { b->triggerClick(); pump (100); }
-        snapshot (*ed, "docs/ui_presets.png");
+        snapshot (*ed, "docs/ui_presets.png", false);
+        piradex::i18n::set (piradex::i18n::Language::EN, false); pump (400);     // em inglês (a interface é refeita)
+        for (auto* c : ed->getChildren())
+            for (auto* cc : c->getChildren())
+                if (auto* b = dynamic_cast<juce::Button*> (cc))
+                    if (b->getName() == "preset") { b->triggerClick(); pump (100); }
+        pump (400); saveShot (*ed, "docs/ui_presets_en.png");
+        piradex::i18n::set (piradex::i18n::Language::PT, false); pump (300);
         // escala 75 % e 150 %
-        ed->setSize (750, 480); snapshot (*ed, "docs/ui_scale75.png");
+        ed->setSize (750, 480); snapshot (*ed, "docs/ui_scale75.png", false);
         ed->setSize (1500, 960); pump (100);
         check (ed->getWidth() == 1500 && ed->getHeight() == 960, "redimensionar para 150 %", ed->getWidth(), 1500);
     }
