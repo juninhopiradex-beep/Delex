@@ -1,0 +1,4 @@
+#!/bin/bash
+xattr -cr "/Library/Audio/Plug-Ins/VST3/Delex.vst3" 2>/dev/null || true
+xattr -cr "/Library/Audio/Plug-Ins/Components/Delex.component" 2>/dev/null || true
+exit 0

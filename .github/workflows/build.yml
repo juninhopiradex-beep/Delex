@@ -1,0 +1,98 @@
+name: Build Delex (macOS VST3+AU / Windows VST3)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Collect
+        run: |
+          mkdir -p out
+          find build -name "*.component" -exec cp -R {} out/ \; || true
+          find build -name "*.vst3"      -exec cp -R {} out/ \; || true
+          find build -name "*.app"       -exec cp -R {} out/ \; || true
+          ls -R out
+      - name: Zip
+        run: cd out && zip -r ../Delex-macOS.zip . -x "*.DS_Store"
+      - name: Installer (.pkg)
+        run: |
+          set -e
+          VER=1.0.0
+          mkdir -p pkgroot/vst3 build-pkg
+          mkdir -p pkgroot/au
+          cp -R "out/Delex.vst3"      pkgroot/vst3/
+          cp -R "out/Delex.component" pkgroot/au/
+          chmod +x installer/scripts/postinstall
+          pkgbuild --identifier com.beatfreak.delex.vst3 --version "$VER" \
+            --install-location "/Library/Audio/Plug-Ins/VST3" \
+            --root pkgroot/vst3 build-pkg/vst3.pkg
+          pkgbuild --identifier com.beatfreak.delex.au --version "$VER" \
+            --install-location "/Library/Audio/Plug-Ins/Components" \
+            --scripts installer/scripts \
+            --root pkgroot/au build-pkg/au.pkg
+          productbuild --distribution installer/Distribution.xml \
+            --package-path build-pkg --resources installer/resources \
+            "Delex-Installer.pkg"
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Delex latest build
+          files: |
+            Delex-macOS.zip
+            Delex-Installer.pkg
+          fail_on_unmatched_files: true
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Long paths
+        shell: pwsh
+        run: |
+          git config --global core.longpaths true
+          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force | Out-Null
+      - name: Configure
+        shell: pwsh
+        run: cmake -B C:/b -A x64
+      - name: Build
+        shell: pwsh
+        run: cmake --build C:/b --config Release
+      - name: Collect VST3
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          $v = Get-ChildItem -Path C:/b -Recurse -Directory -Filter "Delex.vst3" | Select-Object -First 1
+          if (-not $v) { throw "Delex.vst3 nao encontrado" }
+          Copy-Item -Recurse -Force $v.FullName "out\Delex.vst3"
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path out\Delex.vst3 -DestinationPath Delex-Windows-VST3.zip -Force
+      - name: Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Installer (.exe)
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DVST3SRC=$PWD\out\Delex.vst3" "/DOUTDIR=$PWD" installer\windows\Delex.iss
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Delex latest build
+          files: |
+            Delex-Windows-VST3.zip
+            Delex-Installer-Windows.exe
+          fail_on_unmatched_files: true
