@@ -11,48 +11,18 @@ namespace lic
 static const KeyEntry kKeys[] =
 {
     { "master", Kind::Master,
-      "6cc1354f8527ef1a5f0c7a4ca471227f",
-      "0eeeeffc91108b9b84ba1540c446644b2d141604e0cf31babfc13024d1835389", 0, 0, 0 },
+      "12607153739b3f7713e22bdbf4aa2fdd",
+      "f9ffe1bd3a17d9a19cd2cc261aa7f1dbeb66a20d9e2c0dd601a649d5fd7e9a70", 0, 0, 0 },
 
     { "beta-01", Kind::Trial,
-      "07cc03321270e2d228cc04145b3eeed8",
-      "b62dbf90dbf17886dcb8da0b44977c93570f6e8eaf33dff0fc0fcc21fae5de00", 2026, 12, 31 },
-
+      "cacf2056043050af0f5540bd7a388e38",
+      "0290c979f3e806f1ed826a82751f01eb5850a9186f7afaeafd70caca0c8dbd0e", 2026, 12, 31 },
     { "beta-02", Kind::Trial,
-      "16ae1e3a6e206c580d2000fa51558d97",
-      "36b742ac9c2f570baef88e1ebc6173d9d1608f31c135c7adc746160d82e1907a", 2026, 12, 31 },
-
+      "69dfa09de99eeb574aa42fe01df3c402",
+      "86e770635cc45f5cc32e6fd0058b183a25179e52bc1693e04a09b821a76eafb1", 2026, 12, 31 },
     { "beta-03", Kind::Trial,
-      "f6bdadaf1178aef3a13bad3c6499b77f",
-      "26698f3906cb43168c1d083fcce2927fa27365bc6fc8bdfbc9f82f8b18ff1c73", 2026, 12, 31 },
-
-    { "beta-04", Kind::Trial,
-      "fc266cf4e858812689d647b1a8f3875f",
-      "2c53e8a5181086d1534fc0332c030384207e7f5f2f52ebf46f09810d691870db", 2026, 12, 31 },
-
-    { "beta-05", Kind::Trial,
-      "382c7491ef20565fa5e683fe9a69e0c1",
-      "abc5155250ffc036aa667f63ed8bec76454ebb3d472c1b22d4e2c4e7402938ff", 2026, 12, 31 },
-
-    { "beta-06", Kind::Trial,
-      "fd2fc728423c154a4dc0e0e4a038eba6",
-      "ef46f876f6533972b0bfa2093917b1dcd44ceb7c3a9ce26076a7a763b573b1ae", 2026, 12, 31 },
-
-    { "beta-07", Kind::Trial,
-      "7783bde98d41afda4ae8db492246e337",
-      "1d1c2edbbd6b3991bddb76cf8434122a8ee755370e5b7ac331cfbd719397e700", 2026, 12, 31 },
-
-    { "beta-08", Kind::Trial,
-      "f55293e5c1a02c438df5db157e413417",
-      "c038e54799c0422ac32133703ebcc37a7e33fabf588f0bd8ef75ebbec69a392c", 2026, 12, 31 },
-
-    { "beta-09", Kind::Trial,
-      "2ab101a87649e56df2bc7a7581fecf31",
-      "a0cc2972d4caa3035212fdb793245028b1440f7f422dad93bad038041248803b", 2026, 12, 31 },
-
-    { "beta-10", Kind::Trial,
-      "e10e686a3f1ed7fdf0d7eddf9fd5786a",
-      "d393c0e3613377ae91ff224fdfb19711e4fb16203ccac4cc6b88c62e27b956a7", 2026, 12, 31 },
+      "8da57f0631572d1b5a6f93f3dc1e453b",
+      "2a7731e73694cdef66e2f7024d9554366b9ca6012d009bd05a6b89e84e4d91ea", 2026, 12, 31 },
 };
 
 // ---------------------------------------------------------------------------
