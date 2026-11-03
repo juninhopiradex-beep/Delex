@@ -1,5 +1,5 @@
 // =============================================================================
-//  DELEX by Piradex — presets de fábrica (61) e estilos rápidos
+//  DELEX by Piradex — presets de fábrica (61 + 221 em PresetsExtra.inc) e estilos rápidos
 //  Cada preset parte dos valores por defeito e aplica só o que muda.
 //  Formato: "id=valor;id=valor" (valores nas unidades mostradas; escolhas por nome).
 // =============================================================================
@@ -19,12 +19,17 @@ struct FactoryPreset
     const char* use;
     const char* tags;
     const char* data;
+    const char* sub = "";        // subcategoria (ex.: "Room", "Snare")
+    const char* descEn = nullptr;
+    const char* useEn = nullptr;
+    const char* tagsEn = nullptr;
 };
 
 inline const juce::StringArray& presetCategories()
 {
-    static const juce::StringArray c { "Vocals", "Afro House", "Kizomba", "Trap", "Drums", "Guitar", "Synth",
-                                       "Ambient", "Lo-Fi", "Dub", "Transition", "Master FX" };
+    static const juce::StringArray c { "Vocals", "Afro House", "Kizomba", "Trap", "Drums", "Bass", "Guitar", "Synth",
+                                       "Ambience", "Ambient", "Orkestra", "Mega", "NonLin", "VIP", "FX",
+                                       "Lo-Fi", "Dub", "Transition", "Master FX" };
     return c;
 }
 
@@ -230,13 +235,15 @@ inline const std::vector<FactoryPreset>& factoryPresets()
         // ---------------------------------------------------------------- Master FX
         { "Brilho Sutil", "Master FX", "Alarga só os agudos com reflexões muito curtas.",
           "Barramento de mistura (mix baixo).", "subtil, largura, agudos",
-          "sync=0;time=12;r_ratio=1.4;feedback=0;space=40;mix=6;low_cut=3000;high_cut=16000;mod_depth=2" },
+          "sync=0;time=12;r_ratio=1.4;feedback=0;space=40;mix=6;low_cut=2000;high_cut=16000;mod_depth=2" },
         { "Largura Fina", "Master FX", "Largura discreta com graves em mono.",
           "Barramentos e stems.", "largura, mono-safe, subtil",
           "sync=0;time=8;r_ratio=1.6;feedback=0;space=60;mix=8;low_cut=800;mono_safe=1" },
         { "Profundidade Mínima", "Master FX", "Uma camada de profundidade quase invisível.",
           "Barramento de vozes ou instrumentos.", "profundidade, subtil, difuso",
           "div=1/8;feedback=20;diff_amount=60;tone=-40;space=50;mix=5;mono_safe=1" },
+
+#include "PresetsExtra.inc"
     };
     return p;
 }
@@ -314,16 +321,19 @@ inline const PresetTextEn* presetEnglish (const char* name)
 }
 inline juce::String presetDescription (const FactoryPreset& p)
 {
+    if (! piradex::i18n::isPortuguese() && p.descEn != nullptr) return juce::String::fromUTF8 (p.descEn);
     if (! piradex::i18n::isPortuguese()) if (auto* e = presetEnglish (p.name)) return juce::String::fromUTF8 (e->description);
     return juce::String::fromUTF8 (p.description);
 }
 inline juce::String presetUse (const FactoryPreset& p)
 {
+    if (! piradex::i18n::isPortuguese() && p.useEn != nullptr) return juce::String::fromUTF8 (p.useEn);
     if (! piradex::i18n::isPortuguese()) if (auto* e = presetEnglish (p.name)) return juce::String::fromUTF8 (e->use);
     return juce::String::fromUTF8 (p.use);
 }
 inline juce::String presetTags (const FactoryPreset& p)
 {
+    if (! piradex::i18n::isPortuguese() && p.tagsEn != nullptr) return juce::String::fromUTF8 (p.tagsEn);
     if (! piradex::i18n::isPortuguese()) if (auto* e = presetEnglish (p.name)) return juce::String::fromUTF8 (e->tags);
     return juce::String::fromUTF8 (p.tags);
 }

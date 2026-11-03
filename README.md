@@ -11,10 +11,10 @@ Delay estéreo espacial em **VST3, AU e AAX (Pro Tools)**, interface em **Portug
 - **Delay duplo L/R** até 8 s por canal, sync com o BPM (1/1 a 1/128, pontuados e tercinas), tap tempo, modos **Dual / Ping-Pong / Mono**.
 - **Matriz espacial** (rotação ou reflexão unitária) aplicada a cada repetição: os ecos rodam no estéreo sem ganhar energia.
 - **Feedback moldável**: EQ no loop (low/high cut 6/12/24 dB, pico com compensação), dispersão, difusão, saturação de fita, digital grit — com ordem configurável.
-- **Ducker**, **Freeze** sem perdas, mudanças de tempo por **glide de fita** ou **crossfade**, modulação (seno/triângulo/aleatório, sync), wow & flutter.
+- **Ducker**, **gate dos ecos** (efeito não linear), **Freeze** sem perdas, mudanças de tempo por **glide de fita** ou **crossfade**, modulação (seno/triângulo/aleatório, sync), wow & flutter.
 - **Vista SIMPLE** com 6 controlos (TIME, FEEDBACK, SPACE, TONE, CHARACTER, MIX) e **vista ADVANCED** com 6 abas.
 - **Idioma PT | EN**: seletor no cabeçalho, na página Utilities (INTERFACE) e no ecrã da senha. Na primeira vez segue o idioma do sistema; a escolha é partilhada por todos os plugins Piradex. Os nomes dos parâmetros no DAW não mudam (as automações continuam a funcionar).
-- **61 presets** de fábrica (Vocals, Afro House, Kizomba, Trap, Drums, Guitar, Synth, Ambient, Lo-Fi, Dub, Transition, Master FX), pesquisa, favoritos, presets do utilizador, A/B, desfazer/refazer, interface 75–200 %.
+- **282 presets** de fábrica em 19 categorias (Vocals, Afro House, Kizomba, Trap, Drums, Bass, Guitar, Synth, Ambience, Ambient, Orkestra, Mega, NonLin, VIP, FX, Lo-Fi, Dub, Transition, Master FX), com subcategorias, pesquisa, favoritos, presets do utilizador, A/B, desfazer/refazer, interface 75–200 %.
 
 ## Senha
 

@@ -5,6 +5,8 @@
 #include "PluginEditor.h"
 #include <cstdio>
 #include <random>
+#include <map>
+#include <cstring>
 
 static juce::String u8 (const char* x) { return juce::String::fromUTF8 (x); }
 
@@ -114,6 +116,285 @@ static bool clickButton (juce::Component& root, const juce::String& text)
     return false;
 }
 
+
+// ============================================================================
+//  Teste de TODOS os controlos da interface: percorre a árvore de componentes,
+//  mexe em cada knob/botão/seletor como o utilizador faria e confirma que o
+//  parâmetro (e portanto o áudio) mudou. Depois testa os botões de acção um a um.
+// ============================================================================
+static std::vector<float> paramSnap (DelexProcessor& p)
+{
+    std::vector<float> v;
+    for (auto* prm : p.getParameters()) v.push_back (prm->getValue());
+    return v;
+}
+static int paramDiff (const std::vector<float>& a, const std::vector<float>& b)
+{
+    int n = 0;
+    for (size_t i = 0; i < a.size(); ++i) if (std::abs (a[i] - b[i]) > 1.0e-6f) ++n;
+    return n;
+}
+static void walk (juce::Component& c, const std::function<void (juce::Component&)>& f)
+{
+    f (c);
+    for (auto* ch : c.getChildren()) walk (*ch, f);
+}
+static juce::Button* findButton (juce::Component& root, const juce::String& textOrName)
+{
+    juce::Button* found = nullptr;
+    walk (root, [&] (juce::Component& c)
+    {
+        if (found != nullptr) return;
+        if (auto* b = dynamic_cast<juce::Button*> (&c))
+            if (b->getButtonText() == textOrName || b->getName() == textOrName) found = b;
+    });
+    return found;
+}
+static bool press (juce::Component& root, const juce::String& textOrName, int waitMs = 60)
+{
+    if (auto* b = findButton (root, textOrName)) { b->triggerClick(); pump (waitMs); return true; }
+    std::printf ("    botão não encontrado: %s\n", textOrName.toRawUTF8());
+    return false;
+}
+static float plain (DelexProcessor& p, const char* id)
+{
+    auto* prm = p.apvts.getParameter (id);
+    return prm->convertFrom0to1 (prm->getValue());
+}
+
+static void testControls (DelexProcessor& p)
+{
+    std::printf ("Controlos da interface (cada knob, botão e seletor)\n");
+    // guardado (persist) para o editor não voltar a ler outro idioma do ficheiro partilhado Piradex.settings
+    const auto langBefore = piradex::i18n::current();
+    piradex::i18n::set (piradex::i18n::Language::PT, true);
+    lic::License::get().unlockForTests();
+    p.loadFactoryPreset (0);
+    std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+    ed->setSize (1000, 640);
+    pump (200);
+
+    // ---- 1) knobs e faders: cada um muda o seu parâmetro
+    int sl = 0, slOk = 0, tg = 0, tgOk = 0, sg = 0, sgOk = 0, cb = 0, cbOk = 0;
+    std::vector<juce::Slider*> sliders;
+    std::vector<delex::ui::ToggleChip*> toggles;
+    std::vector<delex::ui::Segmented*> segs;
+    std::vector<delex::ui::ChoiceBox*> combos;
+    walk (*ed, [&] (juce::Component& c)
+    {
+        if (auto* s = dynamic_cast<juce::Slider*> (&c)) sliders.push_back (s);
+        if (auto* t = dynamic_cast<delex::ui::ToggleChip*> (&c)) toggles.push_back (t);
+        if (auto* s = dynamic_cast<delex::ui::Segmented*> (&c)) segs.push_back (s);
+        if (auto* b = dynamic_cast<delex::ui::ChoiceBox*> (&c)) combos.push_back (b);
+    });
+    for (auto* s : sliders)
+    {
+        ++sl;
+        const double cur = s->getValue();
+        const double target = s->proportionOfLengthToValue (s->valueToProportionOfLength (cur) < 0.5 ? 0.8 : 0.2);
+        const auto before = paramSnap (p);
+        s->setValue (target, juce::sendNotificationSync);
+        const auto after = paramSnap (p);
+        if (paramDiff (before, after) > 0) ++slOk;
+        else std::printf ("    knob sem efeito: %s\n", s->getTooltip().upToFirstOccurrenceOf ("\n", false, false).toRawUTF8());
+        s->setValue (cur, juce::sendNotificationSync);
+    }
+    check (sl > 0 && slOk == sl, "knobs e faders: todos mudam o seu parâmetro", slOk, sl);
+
+    // ---- 2) botões liga/desliga (SYNC, FREEZE, DUCK, GATE, BYPASS, MONO-SAFE…)
+    for (auto* t : toggles)
+    {
+        ++tg;
+        const auto before = paramSnap (p);
+        const bool was = t->getToggleState();
+        t->triggerClick(); pump (40);
+        const bool okOn = paramDiff (before, paramSnap (p)) > 0 && t->getToggleState() != was;
+        t->triggerClick(); pump (40);
+        const bool okOff = paramDiff (before, paramSnap (p)) == 0 && t->getToggleState() == was;
+        if (okOn && okOff) ++tgOk; else std::printf ("    botão sem efeito: %s\n", t->getButtonText().toRawUTF8());
+    }
+    check (tg > 0 && tgOk == tg, "botões liga/desliga: todos ligam e desligam", tgOk, tg);
+
+    // ---- 3) seletores segmentados (DUAL/PING-PONG/MONO, LINEAR/POTÊNCIA, SLOPE…)
+    for (auto* s : segs)
+    {
+        bool ok = true;
+        juce::StringArray seen;
+        for (auto* ch : s->getChildren())
+            if (auto* b = dynamic_cast<juce::TextButton*> (ch))
+            {
+                ++sg;
+                b->triggerClick(); pump (30);
+                if (b->getToggleState()) ++sgOk; else { ok = false; std::printf ("    opção sem efeito: %s\n", b->getButtonText().toRawUTF8()); }
+                seen.add (b->getButtonText());
+            }
+        juce::ignoreUnused (ok);
+        if (auto* first = dynamic_cast<juce::TextButton*> (s->getChildren().getFirst())) { first->triggerClick(); pump (30); }
+    }
+    check (sg > 0 && sgOk == sg, "seletores: cada opção fica activa", sgOk, sg);
+
+    // ---- 4) listas (divisão, ordem do loop, divisão da modulação)
+    for (auto* b : combos)
+    {
+        ++cb;
+        const int cur = b->getSelectedItemIndex();
+        const auto before = paramSnap (p);
+        b->setSelectedItemIndex (cur == 0 ? 1 : 0, juce::sendNotificationSync);
+        if (paramDiff (before, paramSnap (p)) > 0) ++cbOk;
+        b->setSelectedItemIndex (cur, juce::sendNotificationSync);
+    }
+    check (cb > 0 && cbOk == cb, "listas de escolha: todas mudam o parâmetro", cbOk, cb);
+    std::printf ("    (%d knobs/faders · %d botões liga/desliga · %d opções de seletor · %d listas)\n", sl, tg, sg, cb);
+
+    // ---- 5) botões de acção
+    auto& ui = *ed;
+    // vistas e abas
+    check (press (ui, "ADVANCED") && p.advancedView, "ADVANCED abre a vista avançada");
+    const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "UTILITIES" };
+    int tabOk = 0;
+    for (int i = 0; i < 6; ++i) if (press (ui, tabs[i]) && p.advancedTab == i) ++tabOk;
+    check (tabOk == 6, "6 abas abrem a página certa", tabOk, 6);
+    check (press (ui, "SIMPLE") && ! p.advancedView, "SIMPLE volta à vista simples");
+
+    // estilos
+    int styleOk = 0;
+    const char* styleNames[] = { "CLEAN", "PING-PONG", "WIDE", "DUB", "DREAM", "TAPE", "DIGITAL", "RHYTHMIC" };
+    for (auto* st : styleNames)
+    {
+        const auto before = paramSnap (p);
+        if (press (ui, st) && paramDiff (before, paramSnap (p)) > 0) ++styleOk;
+        else if (std::strcmp (st, "CLEAN") == 0) ++styleOk;   // CLEAN a partir de valores já limpos pode não mudar nada
+    }
+    press (ui, "DUB");
+    check (styleOk == 8 && std::abs (plain (p, delex::id::feedback) - 70.0f) < 0.5f, "8 estilos aplicam-se (DUB: feedback 70 %)", plain (p, delex::id::feedback), 70.0);
+
+    // presets anterior / seguinte / favorito
+    p.loadFactoryPreset (10);
+    press (ui, "seguinte"); const auto n1 = p.currentPresetName();
+    press (ui, "anterior"); const auto n0 = p.currentPresetName();
+    check (n1 == juce::String::fromUTF8 (delex::factoryPresets()[11].name) && n0 == juce::String::fromUTF8 (delex::factoryPresets()[10].name), "‹ › mudam de preset");
+    const bool fav = p.isFavourite (p.currentPresetName());
+    press (ui, "favorito");
+    const bool favOk = p.isFavourite (p.currentPresetName()) != fav;
+    press (ui, "favorito");
+    check (favOk && p.isFavourite (p.currentPresetName()) == fav, "★ marca e desmarca favorito");
+
+    // desfazer / refazer (com um knob real)
+    {
+        juce::Slider* fbKnob = nullptr;
+        for (auto* s : sliders)          // o knob cujo movimento muda o FEEDBACK
+        {
+            const float f0 = plain (p, delex::id::feedback); const double v0 = s->getValue();
+            s->setValue (s->proportionOfLengthToValue (s->valueToProportionOfLength (v0) < 0.5 ? 0.9 : 0.1), juce::sendNotificationSync);
+            const bool isFb = std::abs (plain (p, delex::id::feedback) - f0) > 0.5f;
+            s->setValue (v0, juce::sendNotificationSync);
+            if (isFb) { fbKnob = s; break; }
+        }
+        if (fbKnob == nullptr) { check (false, "knob de FEEDBACK encontrado"); return; }
+        pump (300);                       // o APVTS regista os passos de desfazer num temporizador
+        const float a = plain (p, delex::id::feedback);
+        { juce::Slider::ScopedDragNotification drag (*fbKnob);       // exactamente o que o arrasto do rato faz
+          fbKnob->setValue (a > 50 ? 20.0 : 80.0, juce::sendNotificationSync); }
+        const float b = plain (p, delex::id::feedback);
+        pump (300);
+        // valor escrito à mão no número do knob (outro passo de desfazer)
+        delex::ui::Knob* knob = dynamic_cast<delex::ui::Knob*> (fbKnob->getParentComponent());
+        if (knob != nullptr) { knob->value.setText ("45 %", juce::sendNotificationSync); pump (300); }
+        const float c = plain (p, delex::id::feedback);
+        press (ui, "desfazer", 300); const float u0 = plain (p, delex::id::feedback);
+        press (ui, "desfazer", 300); const float u1 = plain (p, delex::id::feedback);
+        press (ui, "refazer", 300);  const float r1 = plain (p, delex::id::feedback);
+        check (knob != nullptr && std::abs (c - 45.0f) < 0.5f, "escrever um valor no número do knob", c, 45.0);
+        check (std::abs (u0 - b) < 0.5f && std::abs (u1 - a) < 0.5f && std::abs (r1 - b) < 0.5f, "↶ ↷ desfazem/refazem um passo de cada vez", u1, a);
+    }
+
+    // A / B
+    {
+        setParam (p, delex::id::mix, 15.0f);
+        press (ui, "B"); setParam (p, delex::id::mix, 70.0f);
+        press (ui, "A"); const float a = plain (p, delex::id::mix);
+        press (ui, "B"); const float b = plain (p, delex::id::mix);
+        press (ui, "A");
+        check (std::abs (a - 15.0f) < 0.5f && std::abs (b - 70.0f) < 0.5f, "A / B guardam e trocam estados", b, 70.0);
+    }
+
+    // TAP: 4 toques a ~400 ms
+    {
+        setParam (p, delex::id::div, 5.0f);    // 1/4
+        for (int i = 0; i < 4; ++i) { press (ui, "TAP", 1); pump (400); }
+        const float t = plain (p, delex::id::time);
+        check (plain (p, delex::id::sync) < 0.5f && t > 360.0f && t < 470.0f, "TAP define o tempo (~400 ms) e desliga o SYNC", t, 400.0);
+    }
+
+    // tamanho da interface
+    {
+        int ok = 0;
+        const std::pair<const char*, int> sizes[] = { { "125%", 1250 }, { "150%", 1500 }, { "200%", 2000 }, { "75%", 750 }, { "100%", 1000 } };
+        press (ui, "ADVANCED"); press (ui, "UTILITIES");
+        for (auto& s : sizes) if (press (ui, s.first, 120) && ed->getWidth() == s.second && ed->getHeight() == s.second * 640 / 1000) ++ok;
+        check (ok == 5, "75/100/125/150/200 % redimensionam a janela", ok, 5);
+        pump (100);
+        auto* b100 = findButton (ui, "100%");
+        check (b100 != nullptr && b100->getToggleState(), "o tamanho actual fica assinalado");
+    }
+
+    // TERMINAR SESSÃO
+    {
+        lic::License::get().unlockForTests(); pump (120);
+        auto* lo = findButton (ui, juce::String::fromUTF8 ("TERMINAR SESSÃO"));
+        const bool enabled = lo != nullptr && lo->isEnabled();
+        press (ui, juce::String::fromUTF8 ("TERMINAR SESSÃO"), 150);
+        bool loginShown = false;
+        walk (ui, [&] (juce::Component& c) { if (dynamic_cast<delex::ui::LoginOverlay*> (&c) != nullptr && c.isVisible()) loginShown = true; });
+        check (enabled && ! lic::License::get().isUnlocked() && loginShown, "TERMINAR SESSÃO fecha a sessão e pede a senha");
+        lic::License::get().unlockForTests(); pump (120);
+    }
+
+    // browser de presets: abre, cada categoria mostra os seus presets, CARREGAR, fechar
+    {
+        press (ui, "SIMPLE");
+        press (ui, "preset", 150);
+        juce::ListBox* list = nullptr;
+        walk (ui, [&] (juce::Component& c) { if (auto* l = dynamic_cast<juce::ListBox*> (&c)) list = l; });
+        check (list != nullptr, "o nome do preset abre o browser");
+        if (list != nullptr)
+        {
+            std::map<juce::String, int> perCat;
+            for (auto& e : delex::factoryPresets()) ++perCat[juce::String::fromUTF8 (e.category)];
+            int catOk = 0;
+            for (auto& cat : delex::presetCategories())
+                if (press (ui, cat, 40) && list->getListBoxModel()->getNumRows() == perCat[cat]) ++catOk;
+                else std::printf ("    categoria %s: %d linhas (esperado %d)\n", cat.toRawUTF8(), list->getListBoxModel()->getNumRows(), perCat[cat]);
+            check (catOk == delex::presetCategories().size(), "cada categoria do browser lista os seus presets", catOk, delex::presetCategories().size());
+            press (ui, "Todos", 40);
+            check (list->getListBoxModel()->getNumRows() >= 282, "Todos mostra os 282 presets", list->getListBoxModel()->getNumRows(), 282);
+            press (ui, "NonLin", 40);
+            list->selectRow (3); pump (150);
+            saveShot (*ed, "docs/ui_presets_nonlin.png");
+            press (ui, "CARREGAR", 80);
+            check (juce::String (delex::factoryPresets()[(size_t) p.getCurrentProgram()].category) == "NonLin", "CARREGAR aplica o preset escolhido");
+            press (ui, "fechar", 150);
+            bool still = false;
+            walk (ui, [&] (juce::Component& c) { if (dynamic_cast<juce::ListBox*> (&c) != nullptr) still = true; });
+            check (! still, "✕ fecha o browser");
+        }
+    }
+
+    // presets do utilizador (GUARDAR COMO… usa isto por dentro)
+    {
+        setParam (p, delex::id::feedback, 33.0f);
+        const bool saved = p.saveUserPreset ("Teste DELEX");
+        setParam (p, delex::id::feedback, 77.0f);
+        p.loadUserPreset (p.userPresetFolder().getChildFile ("Teste DELEX.dlxpreset"));
+        check (saved && std::abs (plain (p, delex::id::feedback) - 33.0f) < 0.5f, "guardar e carregar preset do utilizador");
+        p.userPresetFolder().getChildFile ("Teste DELEX.dlxpreset").deleteFile();
+    }
+    ed.reset();
+    pump (50);
+    piradex::i18n::set (langBefore, true);
+    piradex::i18n::set (piradex::i18n::Language::PT, false);
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI init;
@@ -158,8 +439,86 @@ int main()
             if (! fin || pk > 6.0f) { ++bad; std::printf ("    preset %d (%s): pico %.2f finito %d\n", i, p.getProgramName (i).toRawUTF8(), pk, (int) fin); }
             worst = juce::jmax (worst, pk);
         }
-        check (bad == 0, "61 presets: áudio finito e limitado", worst, 6.0);
-        check (p.getNumPrograms() == 61, "número de presets de fábrica", p.getNumPrograms(), 61);
+        check (bad == 0, "282 presets: áudio finito e limitado", worst, 6.0);
+        check (p.getNumPrograms() == 282, "número de presets de fábrica", p.getNumPrograms(), 282);
+    }
+
+    // 1b) presets: nomes únicos, categorias válidas, contagens pedidas, cada valor aplicado
+    //     exactamente como escrito, textos em inglês
+    {
+        const auto& fp = delex::factoryPresets();
+        std::map<juce::String, int> perCat;
+        juce::StringArray names; int dup = 0, badCat = 0, badVal = 0, badKey = 0, noEn = 0;
+        for (int i = 0; i < (int) fp.size(); ++i)
+        {
+            const auto& e = fp[(size_t) i];
+            const auto nm = juce::String::fromUTF8 (e.name);
+            if (names.contains (nm)) ++dup;
+            names.add (nm);
+            const auto cat = juce::String::fromUTF8 (e.category);
+            if (! delex::presetCategories().contains (cat)) ++badCat;
+            ++perCat[cat];
+            if (i >= 61 && (e.descEn == nullptr || juce::String::fromUTF8 (e.descEn).isEmpty())) ++noEn;
+            p.loadFactoryPreset (i);
+            const auto kv = delex::parsePresetData (e.data);
+            for (auto& k : kv.getAllKeys())
+            {
+                auto* prm = p.apvts.getParameter (k);
+                if (prm == nullptr) { ++badKey; std::printf ("    %s: parâmetro desconhecido %s\n", e.name, k.toRawUTF8()); continue; }
+                const float now = prm->convertFrom0to1 (prm->getValue());
+                float want;
+                if (auto* c = dynamic_cast<juce::AudioParameterChoice*> (prm))
+                {
+                    int idx = c->choices.indexOf (kv[k]);
+                    if (idx < 0) idx = kv[k].containsOnly ("0123456789") ? kv[k].getIntValue() : -1;
+                    want = (float) idx;
+                }
+                else want = kv[k].getFloatValue();
+                const float tol = 0.002f * (prm->getNormalisableRange().end - prm->getNormalisableRange().start) + 1.0e-4f;
+                if (std::abs (now - want) > tol) { ++badVal; std::printf ("    %s: %s = %s ficou %.4f\n", e.name, k.toRawUTF8(), kv[k].toRawUTF8(), now); }
+            }
+        }
+        check (dup == 0, "nomes de presets únicos", dup, 0);
+        check (badCat == 0, "todas as categorias existem no browser", badCat, 0);
+        check (badKey == 0 && badVal == 0, "cada valor dos presets aplicado como escrito", badKey + badVal, 0);
+        check (noEn == 0, "presets novos com texto em inglês", noEn, 0);
+        const std::pair<const char*, int> want[] = { { "Ambience", 20 }, { "Bass", 24 }, { "Drums", 5 + 33 }, { "FX", 4 }, { "Guitar", 5 + 13 },
+                                                     { "Mega", 8 }, { "NonLin", 16 }, { "Orkestra", 13 }, { "Synth", 5 + 36 }, { "VIP", 9 }, { "Vocals", 7 + 45 } };
+        int badCount = 0;
+        for (auto& w : want)
+            if (perCat[w.first] != w.second) { ++badCount; std::printf ("    %s: %d presets (esperado %d)\n", w.first, perCat[w.first], w.second); }
+        check (badCount == 0, "contagem por categoria (221 novos)", badCount, 0);
+    }
+
+    // 1c) NonLin: a cauda corta mesmo (gate) — silêncio depois do hold
+    {
+        const auto& fp = delex::factoryPresets();
+        int bad = 0, n = 0; float worstTail = 0;
+        for (int i = 0; i < (int) fp.size(); ++i)
+        {
+            if (juce::String (fp[(size_t) i].category) != "NonLin") continue;
+            ++n;
+            DelexProcessor q; q.setPlayConfigDetails (2, 2, 48000.0, 512); q.prepareToPlay (48000.0, 512);
+            q.loadFactoryPreset (i);
+            setParam (q, delex::id::mix, 100.0f);
+            juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m;
+            std::uniform_real_distribution<float> u (-0.5f, 0.5f);
+            float during = 0, tail = 0;
+            for (int k = 0; k < 160; ++k)   // ≈1,7 s: golpe de 0,1 s e depois silêncio
+            {
+                for (int c = 0; c < 2; ++c) for (int s = 0; s < 512; ++s) b.setSample (c, s, k < 10 ? u (g) : 0.0f);
+                q.processBlock (b, m);
+                for (int s = 0; s < 512; ++s)
+                {
+                    const float v = std::abs (b.getSample (0, s));
+                    if (k >= 10 && k < 20) during = juce::jmax (during, v);
+                    if (k >= 120) tail = juce::jmax (tail, v);   // ≥1,28 s
+                }
+            }
+            worstTail = juce::jmax (worstTail, tail);
+            if (! (during > 0.01f && tail < 1.0e-4f)) { ++bad; std::printf ("    %s: cauda %.4f, depois %.6f\n", fp[(size_t) i].name, during, tail); }
+        }
+        check (bad == 0 && n == 16, "NonLin: 16 presets com corte gated", worstTail, 0.0);
     }
 
     // 2) guardar / restaurar estado
@@ -217,6 +576,8 @@ int main()
         check (std::abs (delex::delayMsL (v, 120.0) - 750.0) < 0.01, "1/4D a 120 BPM = 750 ms", delex::delayMsL (v, 120.0), 750.0);
     }
 
+    testControls (p);
+
     // matriz de parâmetros (documentação gerada a partir do código)
     {
         juce::String md;
@@ -237,7 +598,7 @@ int main()
                    << " | " << curve << " | " << (r->isAutomatable() ? juce::String ("sim") : u8 ("não")) << " |\n";
             }
         juce::File (juce::File::getCurrentWorkingDirectory().getChildFile ("docs/PARAMETROS.md")).replaceWithText (md);
-        check (count == 57, "parametros documentados", count, 57);
+        check (count == 61, "parametros documentados", count, 61);
     }
 
     // 6) capturas da interface

@@ -169,6 +169,19 @@ int main()
         std::printf ("[ok] ducker: redução %.2f dB (pedido 12)\n", r.e.duckReductionDb());
     }
 
+    // 8b) Gate: aberto durante o golpe + hold, fechado (silêncio) depois do release
+    {
+        Params p = wetOnly(); p.feedback = 0.85f; p.timeMsL = p.timeMsR = 30; p.diffAmount = 0.8f;
+        p.gateOn = true; p.gateThreshDb = -30; p.gateHoldMs = 200; p.gateReleaseMs = 30;
+        Run r (p);
+        // golpe de 50 ms a cada 1 s
+        r.go ((int) SR * 2, [] (int i, float& l, float& rr) { const bool hit = (i % 48000) < 2400; l = rr = hit ? 0.5f * std::sin (0.05f * (float) i) : 0.0f; });
+        const float during = peakAbs (r.L, 4800, 9600);                       // 100–200 ms: cauda a soar
+        const float after  = peakAbs (r.L, 24000, 47000);                     // 500–980 ms: gate fechado
+        CHECK (during > 0.05f && after < 1e-4f, "gate: durante %f, depois %f", during, after);
+        std::printf ("[ok] gate: cauda %.3f durante o hold, %.1e depois (corte não linear)\n", during, after);
+    }
+
     // 9) Mudanças de tempo sem cliques (glide de fita e crossfade)
     for (int mode = 0; mode < 2; ++mode)
     {
@@ -236,7 +249,8 @@ int main()
                 p.tapeWarmth = u (g); p.tapeDrive = u (g); p.gritBits = 1 + 23 * u (g); p.gritRateHz = 1000 + 47000 * u (g);
                 p.gritJitter = u (g); p.gritMix = u (g); p.loopOrder = (int) (u (g) * 3.99f);
                 p.preDriveDb = 24 * u (g) - 12; p.wetTrimDb = 36 * u (g) - 24; p.outTrimDb = 0;
-                p.duckOn = u (g) > 0.5f; p.mix = u (g); p.equalPower = u (g) > 0.5f; p.bypass = u (g) > 0.95f;
+                p.duckOn = u (g) > 0.5f; p.mix = u (g);
+                p.gateOn = u (g) > 0.6f; p.gateThreshDb = -60 * u (g); p.gateHoldMs = 1000 * u (g); p.gateReleaseMs = 2 + 500 * u (g); p.equalPower = u (g) > 0.5f; p.bypass = u (g) > 0.95f;
                 e.setParams (p);
                 const int n = 1 + (int) (u (g) * 4095);
                 for (int i = 0; i < n; ++i) { l[(size_t) i] = 0.8f * (u (g) * 2 - 1); r[(size_t) i] = 0.8f * (u (g) * 2 - 1); }

@@ -54,7 +54,13 @@ public:
         value.setColour (juce::Label::textColourId, accent);
         value.setEditable (false, true, false);
         value.setTooltip (tr ("Duplo clique para escrever um valor", "Double-click to type a value"));
-        value.onTextChange = [this] { slider.setValue (slider.getValueFromText (value.getText()), juce::sendNotificationSync); refresh(); };
+        value.onTextChange = [this]
+        {
+            // um valor escrito à mão é um gesto próprio (passo de desfazer separado)
+            juce::Slider::ScopedDragNotification gesture (slider);
+            slider.setValue (slider.getValueFromText (value.getText()), juce::sendNotificationSync);
+            refresh();
+        };
         addAndMakeVisible (value);
         slider.onValueChange = [this] { refresh(); };
         refresh();
@@ -409,7 +415,7 @@ public:
 private:
     static juce::String timeLabel (const Values& v, const Params& p)
     {
-        juce::String ms = p.timeMsL < 1000.0f ? juce::String (p.timeMsL, 0) + " ms" : juce::String (p.timeMsL / 1000.0f, 2) + " s";
+        juce::String ms = p.timeMsL < 1000.0f ? num (p.timeMsL, 0) + " ms" : juce::String (p.timeMsL / 1000.0f, 2) + " s";
         if (v.sync > 0.5f)
         {
             const auto& d = divisions();
@@ -604,7 +610,7 @@ public:
         if (std::abs (vals.tone) > 0.5f)
         {
             g.setColour (col::cyan); g.setFont (mono (10.0f));
-            g.drawText ("TONE " + String (vals.tone, 0) + tr (" (efectivo)", " (effective)"), r.reduced (10, 6), Justification::topRight);
+            g.drawText ("TONE " + num (vals.tone, 0) + tr (" (efectivo)", " (effective)"), r.reduced (10, 6), Justification::topRight);
         }
     }
 
@@ -695,17 +701,27 @@ class GrBar : public juce::Component
 {
 public:
     explicit GrBar (DelexProcessor& p) : proc (p) { setInterceptsMouseClicks (false, false); }
-    void tick() { const float v = proc.duckGr.load(); if (std::abs (v - gr) > 0.05f) { gr = v; repaint(); } }
+    void tick()
+    {
+        const float v = proc.duckGr.load();
+        const bool on = proc.raw.load().duck > 0.5f;
+        if (std::abs (v - gr) > 0.05f || on != wasOn) { gr = v; wasOn = on; repaint(); }
+    }
+    bool wasOn = false;
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
         auto bar = r.removeFromLeft (44.0f).withSizeKeepingCentre (44.0f, 6.0f);
-        g.setColour (col::coral.withAlpha (0.18f)); g.fillRoundedRectangle (bar, 3.0f);
-        const float amt = juce::jmax (1.0f, proc.raw.load().duck_amount);
-        g.setColour (col::coral);
+        const auto v = proc.raw.load();
+        const bool on = v.duck > 0.5f;
+        const auto c = on ? col::coral : col::dim;
+        g.setColour (c.withAlpha (0.18f)); g.fillRoundedRectangle (bar, 3.0f);
+        const float amt = juce::jmax (1.0f, v.duck_amount);
+        g.setColour (c);
         g.fillRoundedRectangle (bar.withLeft (bar.getRight() - bar.getWidth() * juce::jlimit (0.0f, 1.0f, gr / amt)), 3.0f);
         g.setFont (mono (11.0f));
-        g.drawText (juce::String::fromUTF8 ("\xe2\x88\x92") + juce::String (gr, 1) + " dB", r.withTrimmedLeft (6.0f), juce::Justification::centredLeft);
+        const bool zero = gr < 0.05f;
+        g.drawText ((zero ? juce::String() : juce::String::fromUTF8 ("\xe2\x88\x92")) + juce::String (zero ? 0.0f : gr, 1) + " dB", r.withTrimmedLeft (6.0f), juce::Justification::centredLeft);
     }
 private:
     DelexProcessor& proc;

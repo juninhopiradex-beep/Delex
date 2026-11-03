@@ -54,10 +54,14 @@ Gerada automaticamente a partir do código (tests/test_plugin.cpp). IDs estávei
 | `grit_mix` | Grit Mix | 0 % … 100 % | 100 % | linear | sim |
 | `pre_drive` | Pre-Drive | -12.0 dB … +12.0 dB | 0.0 dB | linear | sim |
 | `duck_thresh` | Duck Threshold | -60.0 dB … 0.0 dB | -26.0 dB | linear | sim |
-| `duck_amount` | Duck Amount | 0.0 dB … +30.0 dB | +9.0 dB | linear | sim |
+| `duck_amount` | Duck Amount | 0.0 dB … 30.0 dB | 9.0 dB | linear | sim |
 | `duck_attack` | Duck Attack | 0.1 ms … 100 ms | 4.0 ms | logarítmica (skew) | sim |
 | `duck_hold` | Duck Hold | 0.0 ms … 500 ms | 60 ms | linear | sim |
 | `duck_release` | Duck Release | 10 ms … 2.00 s | 300 ms | logarítmica (skew) | sim |
+| `gate` | Gate | off / on | Off | on/off | sim |
+| `gate_thresh` | Gate Threshold | -60.0 dB … 0.0 dB | -30.0 dB | linear | sim |
+| `gate_hold` | Gate Hold | 10 ms … 1.00 s | 250 ms | logarítmica (skew) | sim |
+| `gate_release` | Gate Release | 2.0 ms … 500 ms | 40 ms | logarítmica (skew) | sim |
 | `mix_law` | Mix Law | Linear / Equal Power | Equal Power | escolha | sim |
 | `wet_trim` | Wet Trim | -24.0 dB … +12.0 dB | 0.0 dB | linear | sim |
 | `out_trim` | Output | -24.0 dB … +12.0 dB | 0.0 dB | linear | sim |

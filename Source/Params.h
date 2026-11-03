@@ -30,6 +30,14 @@ inline const std::vector<Division>& modDivisions()
 }
 inline juce::StringArray names (const std::vector<Division>& v) { juce::StringArray s; for (auto& d : v) s.add (d.name); return s; }
 
+// ---------------------------------------------------------------- formatação
+// Nota: no JUCE, String (v, 0) NÃO arredonda (mostra todas as casas decimais).
+inline juce::String num (double v, int decimals)
+{
+    if (decimals <= 0) return juce::String (juce::roundToInt (v));
+    return juce::String (v, decimals);
+}
+
 // ---------------------------------------------------------------- IDs
 namespace id
 {
@@ -43,6 +51,7 @@ namespace id
     DLX_ID(disp_freq) DLX_ID(disp_spread) DLX_ID(diff_amount) DLX_ID(diff_spread)
     DLX_ID(warmth) DLX_ID(drive) DLX_ID(bits) DLX_ID(rate) DLX_ID(jitter) DLX_ID(grit_mix) DLX_ID(pre_drive)
     DLX_ID(duck_thresh) DLX_ID(duck_amount) DLX_ID(duck_attack) DLX_ID(duck_hold) DLX_ID(duck_release)
+    DLX_ID(gate) DLX_ID(gate_thresh) DLX_ID(gate_hold) DLX_ID(gate_release)
     DLX_ID(mix_law) DLX_ID(wet_trim) DLX_ID(out_trim)
     #undef DLX_ID
 }
@@ -61,12 +70,13 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     std::vector<std::unique_ptr<RangedAudioParameter>> p;
     auto pid = [] (const char* s) { return ParameterID { s, 1 }; };
 
-    auto pct = [] (float v, int) { return String (v, 0) + " %"; };
-    auto ms  = [] (float v, int) { return v < 1000.0f ? String (v, v < 10.0f ? 1 : 0) + " ms" : String (v / 1000.0f, 2) + " s"; };
-    auto hz  = [] (float v, int) { return v < 1000.0f ? String (v, v < 100.0f ? 1 : 0) + " Hz" : String (v / 1000.0f, v < 10000.0f ? 2 : 1) + " kHz"; };
+    auto pct = [] (float v, int) { return num (v, 0) + " %"; };
+    auto ms  = [] (float v, int) { return v < 1000.0f ? num (v, v < 10.0f ? 1 : 0) + " ms" : num (v / 1000.0f, 2) + " s"; };
+    auto hz  = [] (float v, int) { return v < 1000.0f ? num (v, v < 100.0f ? 1 : 0) + " Hz" : num (v / 1000.0f, v < 10000.0f ? 2 : 1) + " kHz"; };
     auto db  = [] (float v, int) { return (v > 0.04f ? "+" : "") + String (v, 1) + " dB"; };
     auto deg = [] (float v, int) { return String (v, 1) + juce::String::fromUTF8 ("\xc2\xb0"); };
-    auto bip = [] (float v, int) { return (v > 0.5f ? "+" : "") + String (v, 0); };
+    auto bip = [] (float v, int) { const int i = juce::roundToInt (v); return (i > 0 ? "+" : "") + String (i); };
+    auto dbAmt = [] (float v, int) { return num (v, 1) + " dB"; };   // quantidade (sem sinal +)
 
     auto addF = [&] (const char* i, const char* name, NormalisableRange<float> r, float def, std::function<String (float, int)> fmt, const char* unit = "")
     {
@@ -85,7 +95,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     addF (id::space, "Space", { 0.0f, 100.0f }, 30.0f, pct);
     addF (id::tone, "Tone", { -100.0f, 100.0f }, 0.0f, bip);
     addF (id::character, "Character", { -100.0f, 100.0f }, 0.0f,
-          [] (float v, int) { return std::abs (v) < 0.5f ? String ("0") : (v > 0 ? "TAPE " : "DIGI ") + String (std::abs (v), 0); });
+          [] (float v, int) { return std::abs (v) < 0.5f ? String ("0") : (v > 0 ? "TAPE " : "DIGI ") + num (std::abs (v), 0); });
     addF (id::mix, "Mix", { 0.0f, 100.0f }, 25.0f, pct);
     addB (id::freeze, "Freeze", false);
     addB (id::duck, "Duck", false);
@@ -95,7 +105,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     addC (id::routing, "Routing", { "Dual", "Ping-Pong", "Mono" }, 0);
     addF (id::r_ratio, "R Time Ratio", skewed (0.25f, 2.0f, 1.0f), 1.0f, [] (float v, int) { return "R x " + String (v, 2); });
     addF (id::fb_balance, "Feedback L/R", { -100.0f, 100.0f }, 0.0f,
-          [] (float v, int) { return std::abs (v) < 0.5f ? String ("C") : (v < 0 ? "L " : "R ") + String (std::abs (v), 0); });
+          [] (float v, int) { return std::abs (v) < 0.5f ? String ("C") : (v < 0 ? "L " : "R ") + num (std::abs (v), 0); });
     addC (id::transition, "Time Transition", { "Tape Glide", "Crossfade" }, 0);
     addF (id::glide, "Glide", skewed (10.0f, 2000.0f, 250.0f), 250.0f, ms);
 
@@ -142,10 +152,14 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
 
     // utilidades
     addF (id::duck_thresh, "Duck Threshold", { -60.0f, 0.0f }, -26.0f, db);
-    addF (id::duck_amount, "Duck Amount", { 0.0f, 30.0f }, 9.0f, db);
+    addF (id::duck_amount, "Duck Amount", { 0.0f, 30.0f }, 9.0f, dbAmt);
     addF (id::duck_attack, "Duck Attack", skewed (0.1f, 100.0f, 8.0f), 4.0f, ms);
     addF (id::duck_hold, "Duck Hold", { 0.0f, 500.0f }, 60.0f, ms);
     addF (id::duck_release, "Duck Release", skewed (10.0f, 2000.0f, 300.0f), 300.0f, ms);
+    addB (id::gate, "Gate", false);
+    addF (id::gate_thresh, "Gate Threshold", { -60.0f, 0.0f }, -30.0f, db);
+    addF (id::gate_hold, "Gate Hold", skewed (10.0f, 1000.0f, 250.0f), 250.0f, ms);
+    addF (id::gate_release, "Gate Release", skewed (2.0f, 500.0f, 40.0f), 40.0f, ms);
     addC (id::mix_law, "Mix Law", { "Linear", "Equal Power" }, 1);
     addF (id::wet_trim, "Wet Trim", { -24.0f, 12.0f }, 0.0f, db);
     addF (id::out_trim, "Output", { -24.0f, 12.0f }, 0.0f, db);
@@ -165,6 +179,7 @@ struct Values
           disp_freq, disp_spread, diff_amount, diff_spread,
           warmth, drive, bits, rate, jitter, grit_mix, pre_drive,
           duck_thresh, duck_amount, duck_attack, duck_hold, duck_release,
+          gate, gate_thresh, gate_hold, gate_release,
           mix_law, wet_trim, out_trim;
 };
 
@@ -182,6 +197,7 @@ public:
         DLX_P(disp_freq) DLX_P(disp_spread) DLX_P(diff_amount) DLX_P(diff_spread)
         DLX_P(warmth) DLX_P(drive) DLX_P(bits) DLX_P(rate) DLX_P(jitter) DLX_P(grit_mix) DLX_P(pre_drive)
         DLX_P(duck_thresh) DLX_P(duck_amount) DLX_P(duck_attack) DLX_P(duck_hold) DLX_P(duck_release)
+        DLX_P(gate) DLX_P(gate_thresh) DLX_P(gate_hold) DLX_P(gate_release)
         DLX_P(mix_law) DLX_P(wet_trim) DLX_P(out_trim)
         #undef DLX_P
     }
@@ -198,6 +214,7 @@ public:
         DLX_L(disp_freq) DLX_L(disp_spread) DLX_L(diff_amount) DLX_L(diff_spread)
         DLX_L(warmth) DLX_L(drive) DLX_L(bits) DLX_L(rate) DLX_L(jitter) DLX_L(grit_mix) DLX_L(pre_drive)
         DLX_L(duck_thresh) DLX_L(duck_amount) DLX_L(duck_attack) DLX_L(duck_hold) DLX_L(duck_release)
+        DLX_L(gate) DLX_L(gate_thresh) DLX_L(gate_hold) DLX_L(gate_release)
         DLX_L(mix_law) DLX_L(wet_trim) DLX_L(out_trim)
         #undef DLX_L
         return v;
@@ -212,6 +229,7 @@ private:
                       * disp_freq, * disp_spread, * diff_amount, * diff_spread,
                       * warmth, * drive, * bits, * rate, * jitter, * grit_mix, * pre_drive,
                       * duck_thresh, * duck_amount, * duck_attack, * duck_hold, * duck_release,
+                      * gate, * gate_thresh, * gate_hold, * gate_release,
                       * mix_law, * wet_trim, * out_trim;
 };
 
@@ -277,6 +295,8 @@ inline Params toEngine (const Values& v, double bpm, double sr)
     p.duckOn = v.duck > 0.5f;
     p.duckThreshDb = v.duck_thresh; p.duckAmountDb = v.duck_amount;
     p.duckAttackMs = v.duck_attack; p.duckHoldMs = v.duck_hold; p.duckReleaseMs = v.duck_release;
+    p.gateOn = v.gate > 0.5f;
+    p.gateThreshDb = v.gate_thresh; p.gateHoldMs = v.gate_hold; p.gateReleaseMs = v.gate_release;
 
     p.mix = v.mix * 0.01f;  p.equalPower = v.mix_law > 0.5f;
     p.wetTrimDb = v.wet_trim;  p.outTrimDb = v.out_trim;

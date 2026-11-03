@@ -6,7 +6,8 @@
 |---|---|
 | `Source/DelexCore.h` | Motor DSP completo, **sem JUCE** (testável com `g++`). |
 | `Source/Params.h` | 57 parâmetros com IDs estáveis, leitura atómica, macros e conversão para o motor. |
-| `Source/Presets.h` | 61 presets de fábrica e 9 estilos, em formato `id=valor;…` legível. |
+| `Source/Presets.h` | 61 presets originais e 9 estilos, em formato `id=valor;…` legível. |
+| `Source/PresetsExtra.inc` | 221 presets adicionais (PT + EN, subcategorias), **gerados** por `tools/presets_extra.py`, que valida IDs, intervalos, escolhas e nomes únicos. |
 | `Source/PluginProcessor.*` | Ponte JUCE: buses, BPM do host, medidores, estado, presets, A/B, tap. |
 | `Source/Look.h`, `Widgets.h`, `PresetBrowser.h`, `PluginEditor.*` | Interface (LookAndFeel próprio, knobs, ECHO FIELD, goniómetro, EQ interactivo, browser). |
 | `Source/License.*`, `Source/Login.h` | Acesso por senha offline: só salt + hash PBKDF2-HMAC-SHA256 (60 000 iterações) no binário; verificação numa thread de fundo; token por computador. Novas senhas beta: `python3 tools/nova_senha_beta.py AAAA-MM-DD`. |
@@ -27,7 +28,7 @@ entrada ─► largura/rotação de entrada ─► pré-drive ─┐
       ▼                                                             │
  linhas de atraso L/R (Hermite, modulação) ─► matriz 2×2 unitária ─►┘ r[n]
                                                     │
- r[n] ─► ducker ─► rotação/largura de saída ─► wet trim ─► mistura dry/wet ─► bypass suave ─► saída
+ r[n] ─► ducker ─► gate ─► rotação/largura de saída ─► wet trim ─► mistura dry/wet ─► bypass suave ─► saída
 ```
 
 O caminho seco não tem latência; o plugin reporta latência zero.
@@ -44,6 +45,7 @@ O caminho seco não tem latência; o plugin reporta latência zero.
 - **Digital grit** — redução de taxa por amostragem-e-retenção com filtro anti-aliasing a 0,45 × taxa alvo, jitter do relógio, quantização de bits, mistura paralela.
 - **Modulação** — LFO seno/triângulo/aleatório suave; a profundidade em cents é convertida na amplitude de modulação do tempo (`A = (1 − 2^(−c/1200)) / (2π·f)` para seno). Wow (0,55 Hz) + flutter (6,3 Hz) + componente aleatória.
 - **Ducker** — detector de pico na entrada seca, joelho de 6 dB, ataque/hold/release, aplicado só ao molhado.
+- **Gate dos ecos** — mesmo detector (libertação de 5 ms); abre em ≈0,5 ms quando a fonte passa o limiar, mantém HOLD e fecha até −60 dB em RELEASE. Actua só no molhado, depois do loop (o loop continua a correr por baixo, como num gated reverb clássico). Desligado, volta suavemente a 1.
 - **Segurança** — bloqueio DC no loop, limitador suave (linear até 0 dBFS, satura até +6 dBFS), zeros exactos abaixo de 1e-20 (sem denormais), verificação NaN/Inf com reinício de emergência. `processBlock` sem alocações, locks nem I/O.
 - **Macros** — SPACE (largura de saída ×(1+0,8·s), difusão, +30°·s de rotação em Dual), TONE (high cut ×2^(3,3·t) para t<0; low cut ×2^(3t) e high cut ×2^(0,8t) para t>0), CHARACTER (drive/warmth/wow para c>0; bits até 6 e sample rate até ÷5,7 para c<0).
 
@@ -56,7 +58,7 @@ Motor (`delex_core_test`), 22 verificações:
 - mudança de tempo sem cliques (fita e crossfade) · mix 0 e bypass bit-exactos · silêncio após 60 s · fuzz em 44,1/48/96/192 kHz com parâmetros e blocos aleatórios
 - CPU: ≈3 % de um núcleo (48 kHz, todos os módulos activos)
 
-Plugin (`delex_plugin_test`): 61 presets com áudio finito e limitado · estado guardar/restaurar · A/B · layouts mono→estéreo / recusa estéreo→mono · precisão dupla a 96 kHz · 1/4 a 120 BPM = 500 ms · redimensionamento · capturas em `docs/`.
+Plugin (`delex_plugin_test`): 282 presets com áudio finito e limitado · cada valor de cada preset aplicado como escrito · contagem por categoria · NonLin corta para silêncio depois do hold · **todos os controlos da interface** (53 knobs/faders, 9 botões liga/desliga, 15 opções de seletor, 3 listas, estilos, ‹ ›, ★, ↶ ↷, A/B, TAP, tamanhos, TERMINAR SESSÃO, browser e cada categoria, CARREGAR, ✕, presets do utilizador) · estado guardar/restaurar · A/B · layouts mono→estéreo / recusa estéreo→mono · precisão dupla a 96 kHz · 1/4 a 120 BPM = 500 ms · redimensionamento · capturas em `docs/`.
 
 CI (GitHub Actions): testes do motor, build universal arm64 + x86_64 com macOS mínimo 10.13 verificado por `otool`, **auval** nativo e em Rosetta (Intel), **pluginval** nível 5 em macOS e Windows, verificação de que o VST3 Windows não depende do VC++ Redistributable, instaladores `.pkg/.dmg` e Inno Setup.
 

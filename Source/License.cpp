@@ -209,7 +209,8 @@ void License::checkExpiry()
 
 juce::String License::statusText() const
 {
-    if (! unlocked.load() || currentKey == nullptr) return {};
+    if (! unlocked.load() || currentKey == nullptr)
+        return inTrial() ? piradex::i18n::tr ("Modo aberto até 31/12/2026", "Open mode until 31/12/2026") : juce::String();
     if (currentKind == Kind::Master) return piradex::i18n::tr ("Licença completa", "Full license");
     return piradex::i18n::tr ("BETA · válida até ", "BETA · valid until ")
          + juce::String (currentKey->expDay).paddedLeft ('0', 2) + "/"

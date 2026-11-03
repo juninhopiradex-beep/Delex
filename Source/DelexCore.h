@@ -98,6 +98,10 @@ struct Params
     float duckThreshDb = -24.0f, duckAmountDb = 9.0f;
     float duckAttackMs = 5.0f, duckHoldMs = 50.0f, duckReleaseMs = 250.0f;
 
+    // Gate dos ecos (efeito "não linear": a cauda corta-se de repente)
+    bool  gateOn = false;
+    float gateThreshDb = -30.0f, gateHoldMs = 250.0f, gateReleaseMs = 40.0f;
+
     // Mistura
     float mix = 0.25f;  bool equalPower = true;
     bool  bypass = false;
@@ -323,6 +327,7 @@ public:
         lfoR.rng.s = 0x2545F491u; wowLfo.rng.s = 0x6C8E9CF5u;   // sementes diferentes por gerador
         lfoPhase = wowPhase = flutPhase = 0;
         envDuck = 0; duckGainDb = 0; holdCount = 0;
+        envGate = 0; gateG = 1; gateHold = 0;
         haveTargets = false;
         loopLimitPeak = 0;
     }
@@ -331,6 +336,7 @@ public:
 
     // ------------------------------------------------------------ medição
     float duckReductionDb() const noexcept { return -duckGainDb; }   // ≥ 0
+    float gateGain() const noexcept        { return gateG; }         // 0 (fechado) … 1 (aberto)
     float loopLimiterDb() const noexcept   { return loopLimitDbOut; }
     int   resets() const noexcept          { return safetyResets; }
 
@@ -413,7 +419,7 @@ public:
 
             // --- wet: ducker, rotação/largura de saída
             float wL = yL, wR = yR;
-            const float duckG = ducker (dryL, dryR);
+            const float duckG = ducker (dryL, dryR) * gate (dryL, dryR);
             wL *= duckG; wR *= duckG;
             {
                 const float rl = Rout.a * wL + Rout.b * wR, rr = Rout.c * wL + Rout.d * wR;
@@ -892,6 +898,29 @@ private:
         else                     { duckGainDb += relc * (target - duckGainDb); }
         return dbToGainFast (duckGainDb);
     }
+    // Gate: abre (≈0,5 ms) quando a fonte passa o limiar, mantém HOLD e fecha em RELEASE.
+    // Desligado, volta suavemente a 1 (sem cliques).
+    float gate (float dL, float dR) noexcept
+    {
+        if (! tgt.gateOn)
+        {
+            gateG += (1.0f - gateG) * 0.003f;
+            return gateG;
+        }
+        const float in = std::max (std::fabs (dL), std::fabs (dR));
+        envGate = in > envGate ? in : envGate * std::exp (-1.0f / (0.005f * sr));
+        if (gainToDbFast (envGate) > tgt.gateThreshDb)
+        {
+            gateHold = (int) (std::max (0.0f, tgt.gateHoldMs) * 0.001f * sr);
+            gateG += (1.0f - gateG) * (1.0f - std::exp (-1.0f / (0.0005f * sr)));
+        }
+        else if (gateHold > 0) --gateHold;
+        else gateG *= std::exp (-1.0f / (0.001f * std::max (2.0f, tgt.gateReleaseMs) * sr / 6.9f));   // −60 dB em RELEASE
+        if (gateG < 1.0e-6f) gateG = 0.0f;
+        return gateG;
+    }
+    float envGate = 0, gateG = 1;  int gateHold = 0;
+
     static float gainToDbFast (float g) noexcept { return 8.6858896f * std::log (std::max (g, 1.0e-6f)); }
 
     void emergencyReset() noexcept

@@ -47,11 +47,11 @@ No DAW procura **DELEX by Piradex** (fabricante Piradex). Pode coexistir com o D
 | **FEEDBACK EQ** | Curva interactiva (arrasta os nós; roda do rato no pico muda o Q), LOW CUT, SLOPE 6/12/24 dB, PEAK FREQ/GAIN/Q, **COMPENSATE** (reduz o feedback quando o pico sobe, para o loop não disparar), HIGH CUT e a **ordem dos módulos** no loop. |
 | **MOTION** | Modulação DEPTH (cents), RATE ou divisão sincronizada, OFFSET entre L e R, forma Seno/Triângulo/Aleatório, WOW; **Dispersão** (frequência, spread em ms); **Difusão** (amount, spread). |
 | **TEXTURE** | Fita: WARMTH, DRIVE. Digital grit: BIT DEPTH, SAMPLE RATE, JITTER, GRIT MIX. CHARACTER e PRE-DRIVE. |
-| **UTILITIES** | Ducker (threshold, amount, attack, hold, release), curva do MIX (linear / potência constante), WET TRIM, OUTPUT, tamanho da interface (75–200 %) e informação. |
+| **UTILITIES** | Ducker (threshold, amount, attack, hold, release), **gate dos ecos** (GATE, threshold, hold, release: a cauda corta-se de repente quando a fonte pára — é o que dá o som "NonLin"), curva do MIX (linear / potência constante), WET TRIM, OUTPUT, tamanho da interface (75–200 %) e informação. |
 
 ## 4. Presets
 
-61 presets de fábrica em 12 categorias. No browser: pesquisa por nome, fonte ou resultado ("voz", "ping-pong", "escuro"…), categorias, ★ favoritos, **GUARDAR COMO…** para os teus e **PASTA** para abrir a pasta dos presets do utilizador. Duplo clique ou CARREGAR aplica o preset.
+282 presets de fábrica em 19 categorias: Vocals (52), Afro House (6), Kizomba (5), Trap (6), Drums (38: Fills, Snare, Percussion), Bass (24: Ambience, Chorus, Room), Guitar (18), Synth (41), Ambience (20), Ambient (5), Orkestra (13: Chamber, Big Hall), Mega (8, cinematográficos ao estilo dos sintetizadores dos anos 80), NonLin (16: Snare, Toms — usam o gate), VIP (9, técnicas de profissionais), FX (4), Lo-Fi (5), Dub (5), Transition (4) e Master FX (3). A subcategoria aparece ao lado da descrição e também se pode procurar ("Room", "Snare"…). No browser: pesquisa por nome, fonte ou resultado ("voz", "ping-pong", "escuro"…), categorias, ★ favoritos, **GUARDAR COMO…** para os teus e **PASTA** para abrir a pasta dos presets do utilizador. Duplo clique ou CARREGAR aplica o preset.
 
 Pasta dos presets do utilizador:
 - macOS: `~/Library/Application Support/Piradex/DELEX/Presets`

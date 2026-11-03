@@ -28,7 +28,7 @@ public:
             b->setClickingTogglesState (false);
             b->getProperties().set ("flat", true);
             b->getProperties().set ("noEdge", true);
-            b->getProperties().set ("fontH", 13.0f);
+            b->getProperties().set ("fontH", 12.5f);
             b->getProperties().set ("left", true);
             b->setColour (juce::TextButton::buttonOnColourId, i == 0 ? col::gold : col::cyan);
             b->setColour (juce::TextButton::textColourOffId, i == 0 ? col::gold : col::text2);
@@ -102,6 +102,8 @@ public:
         if (auto* e = selectedEntry())
         {
             label (g, e->name, dd.removeFromTop (28.0f), 20.0f, W::Bold, col::text, Justification::centredLeft, 0.0f);
+            label (g, (e->category + (e->sub.isNotEmpty() ? String::fromUTF8 (" · ") + e->sub : String())).toUpperCase(),
+                   dd.removeFromTop (16.0f), 11.0f, W::Semi, col::cyan, Justification::centredLeft, 0.14f);
             dd.removeFromTop (6.0f);
             g.setColour (col::text2); g.setFont (font (14.0f));
             auto descR = dd.removeFromTop (60.0f);
@@ -144,8 +146,10 @@ public:
         saveAs.setBounds (close.getX() - 136, 11, 128, 30);
         openFolder.setBounds (saveAs.getX() - 70, 11, 62, 30);
         search.setBounds (12, 82, 196, 32);
+        // 22 botões (favoritos, todos, 19 categorias, utilizador) cabem sempre na coluna
+        const int step = juce::jlimit (18, 31, (getHeight() - 124 - 6) / juce::jmax (1, catButtons.size()));
         int y = 124;
-        for (auto* b : catButtons) { b->setBounds (8, y, 204, 29); y += 31; }
+        for (auto* b : catButtons) { b->setBounds (8, y, 204, step - 2); y += step; }
         list.setBounds (229, 84, getWidth() - 229 - 250 - 12, getHeight() - 84 - 10);
         load.setBounds (getWidth() - 234, getHeight() - 54, 218, 38);
     }
@@ -163,12 +167,13 @@ private:
         juce::String name, category, desc, use, tags, timeLabel, summary;
         int factory = -1;
         juce::File file;
+        juce::String sub;
     };
 
     static juce::String timeOf (const char* data)
     {
         const auto kv = parsePresetData (data);
-        if (kv["sync"] == "0") { const float t = kv["time"].getFloatValue(); return juce::String (t, 0) + " ms"; }
+        if (kv["sync"] == "0") { const float t = kv["time"].getFloatValue(); return num (t, 0) + " ms"; }
         return kv.containsKey ("div") ? kv["div"] : juce::String ("1/4");
     }
     static juce::String summaryOf (const char* data)
@@ -191,21 +196,22 @@ private:
         auto matches = [&] (const Entry& e)
         {
             if (q.isEmpty()) return true;
-            return (e.name + " " + e.category + " " + e.desc + " " + e.use + " " + e.tags).toLowerCase().contains (q);
+            return (e.name + " " + e.category + " " + e.sub + " " + e.desc + " " + e.use + " " + e.tags).toLowerCase().contains (q);
         };
 
         for (int i = 0; i < (int) fp.size(); ++i)
         {
             Entry e { juce::String::fromUTF8 (fp[(size_t) i].name), juce::String::fromUTF8 (fp[(size_t) i].category),
                       presetDescription (fp[(size_t) i]), presetUse (fp[(size_t) i]),
-                      presetTags (fp[(size_t) i]), timeOf (fp[(size_t) i].data), summaryOf (fp[(size_t) i].data), i, {} };
+                      presetTags (fp[(size_t) i]), timeOf (fp[(size_t) i].data), summaryOf (fp[(size_t) i].data), i, {},
+                      juce::String::fromUTF8 (fp[(size_t) i].sub) };
             const bool inCat = category == 1 || (category == 0 && proc.isFavourite (e.name))
                             || (category >= 2 && category < 2 + ncat && e.category == presetCategories()[category - 2]);
             if ((q.isNotEmpty() || inCat) && matches (e)) entries.push_back (e);
         }
         for (auto& f : userFiles)
         {
-            Entry e { f.getFileNameWithoutExtension(), tr ("Utilizador", "User"), tr ("Preset guardado por ti.", "Preset saved by you."), {}, tr ("utilizador", "user"), {}, {}, -1, f };
+            Entry e { f.getFileNameWithoutExtension(), tr ("Utilizador", "User"), tr ("Preset guardado por ti.", "Preset saved by you."), {}, tr ("utilizador", "user"), {}, {}, -1, f, {} };
             const bool inCat = category == 1 || category == 2 + ncat || (category == 0 && proc.isFavourite (e.name));
             if ((q.isNotEmpty() || inCat) && matches (e)) entries.push_back (e);
         }
@@ -274,7 +280,8 @@ private:
         t.removeFromRight (56.0f);
         label (g, e.name, t.removeFromTop (r.getHeight() * 0.55f).withTrimmedTop (8.0f), 16.0f, W::Semi, col::text, Justification::bottomLeft, 0.0f);
         g.setColour (sel ? col::soft : col::muted); g.setFont (font (13.0f));
-        g.drawText ((category == 1 || search.getText().isNotEmpty() ? e.category + String::fromUTF8 (" · ") : String()) + e.desc,
+        g.drawText ((category == 1 || search.getText().isNotEmpty() ? e.category + String::fromUTF8 (" · ") : String())
+                    + (e.sub.isNotEmpty() ? e.sub + String::fromUTF8 (" · ") : String()) + e.desc,
                     t.withTrimmedBottom (6.0f), Justification::topLeft, true);
     }
     void listBoxItemClicked (int row, const juce::MouseEvent& e) override

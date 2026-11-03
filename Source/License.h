@@ -43,6 +43,7 @@ public:
        #endif
     }
     bool   isUnlocked() const  { return unlocked.load() || inTrial(); }
+    bool   hasKey() const      { return unlocked.load(); }   // sessão iniciada com senha (master/beta)
     Kind   kind() const        { return currentKind; }
     juce::String statusText() const;       // ex.: "BETA · válida até 31/12/2026"
 

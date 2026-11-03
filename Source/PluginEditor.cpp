@@ -3,7 +3,7 @@
 namespace delex::ui
 {
 using juce::String;
-static String u8 (const char* s) { return String::fromUTF8 (s); }
+[[maybe_unused]] static String u8 (const char* s) { return String::fromUTF8 (s); }
 
 // =============================================================================
 //  Página com secções desenhadas (caixas com título)
@@ -624,6 +624,10 @@ private:
         auto& at = p.add (knob (s, id::duck_attack, "ATTACK", "", col::coral, K::Small, false, tr ("Rapidez com que os ecos baixam", "How fast the echoes duck")));
         auto& ho = p.add (knob (s, id::duck_hold, "HOLD", "", col::coral, K::Small, false, tr ("Tempo de espera antes de soltar", "Hold time before releasing")));
         auto& re = p.add (knob (s, id::duck_release, "RELEASE", "", col::coral, K::Small, false, tr ("Rapidez com que os ecos voltam", "How fast the echoes come back")));
+        auto& gOn = p.add (std::make_unique<ToggleChip> (s, id::gate, "GATE", col::violet, tr ("Liga o gate dos ecos: a cauda corta-se de repente quando a fonte pára (efeito não linear)", "Turns the echo gate on: the tail cuts off abruptly when the source stops (non-linear effect)")));
+        auto& gTh = p.add (knob (s, id::gate_thresh, "THRESHOLD", "", col::violet, K::Small, false, tr ("Nível da fonte que abre o gate", "Source level that opens the gate")));
+        auto& gHo = p.add (knob (s, id::gate_hold, "HOLD", "", col::violet, K::Small, false, tr ("Quanto tempo a cauda soa depois de a fonte parar", "How long the tail sounds after the source stops")));
+        auto& gRe = p.add (knob (s, id::gate_release, "RELEASE", "", col::violet, K::Small, false, tr ("Rapidez do corte (curto = abrupto)", "How fast it cuts (short = abrupt)")));
         auto& law = p.add (std::make_unique<Segmented> (s, id::mix_law, juce::StringArray { "LINEAR", tr ("POTÊNCIA CONST.", "CONST. POWER") }, col::cyan, tr ("Curva do MIX: potência constante mantém o volume percebido", "MIX curve: constant power keeps the perceived volume")));
         auto& wt = p.add (knob (s, id::wet_trim, "WET TRIM", "", col::text, K::Small, true, tr ("Ganho só dos ecos", "Gain of the echoes only")));
         auto& ot = p.add (knob (s, id::out_trim, "OUTPUT", "", col::text, K::Small, true, tr ("Ganho de saída", "Output gain")));
@@ -653,20 +657,25 @@ private:
         {
             // idioma (rótulo bilingue para quem estiver "perdido" no outro idioma)
             label (g, tr ("IDIOMA · LANGUAGE", "LANGUAGE · IDIOMA"), { 502.0f, 318.0f, 206.0f, 14.0f }, 11.0f, W::Semi, col::muted, juce::Justification::centredLeft, 0.18f);
-            auto r = p.sections[3].r.toFloat().reduced (14.0f).withTrimmedTop (22.0f);
-            label (g, "DELEX by Piradex  v" JucePlugin_VersionString, r.removeFromTop (20.0f), 15.0f, W::Bold, col::text, juce::Justification::centredLeft, 0.02f);
-            g.setColour (col::text2); g.setFont (font (13.0f));
-            g.drawFittedText (tr ("Delay espacial estéreo · VST3 / AU\nwww.beatfreakstudio.com\nSuporte: juninhopiradex@hotmail.com", "Stereo spatial delay · VST3 / AU / AAX\nwww.beatfreakstudio.com\nSupport: juninhopiradex@hotmail.com"),
-                              r.removeFromTop (60.0f).toNearestInt(), juce::Justification::topLeft, 3);
-            label (g, lic::License::get().statusText(), r.removeFromTop (18.0f), 12.5f, W::Semi, col::cyan, juce::Justification::centredLeft, 0.02f);
+            auto r = p.sections[4].r.toFloat().reduced (14.0f).withTrimmedTop (20.0f);
+            label (g, "DELEX by Piradex  v" JucePlugin_VersionString, r.removeFromTop (18.0f), 15.0f, W::Bold, col::text, juce::Justification::centredLeft, 0.02f);
+            g.setColour (col::text2); g.setFont (font (12.5f));
+            g.drawFittedText (tr ("Delay espacial estéreo · VST3 / AU / AAX\nCriador e Desenvolvedor:\nRicardo Amorim / Juninho Piradex\nwww.beatfreakstudio.com\nSuporte: juninhopiradex@hotmail.com",
+                                  "Stereo spatial delay · VST3 / AU / AAX\nCreator and Developer:\nRicardo Amorim / Juninho Piradex\nwww.beatfreakstudio.com\nSupport: juninhopiradex@hotmail.com"),
+                              r.removeFromTop (76.0f).toNearestInt(), juce::Justification::topLeft, 5, 0.85f);
+            label (g, lic::License::get().statusText(), r.removeFromTop (16.0f), 12.5f, W::Semi, col::cyan, juce::Justification::centredLeft, 0.02f);
         };
-        p.layout = [&p, &on, &th, &am, &at, &ho, &re, &law, &wt, &ot, &mx, sizes, &logout, &langSw]
+        logoutBtn = &logout;
+        p.layout = [&p, &on, &th, &am, &at, &ho, &re, &gOn, &gTh, &gHo, &gRe, &law, &wt, &ot, &mx, sizes, &logout, &langSw]
         {
-            logout.setBounds (746, 346, 130, 28);
+            logout.setBounds (746, 356, 130, 26);
             langSw.setBounds (502, 338, 110, 30);
-            p.sections = { { { 0, 0, 964, 190 }, "DUCKER" }, { { 0, 202, 474, 190 }, tr ("MISTURA E GANHO", "MIX AND GAIN") }, { { 490, 202, 230, 190 }, "INTERFACE" }, { { 732, 202, 232, 190 }, tr ("SOBRE", "ABOUT") } };
+            p.sections = { { { 0, 0, 600, 190 }, "DUCKER" }, { { 612, 0, 352, 190 }, tr ("GATE DOS ECOS", "ECHO GATE") },
+                           { { 0, 202, 474, 190 }, tr ("MISTURA E GANHO", "MIX AND GAIN") }, { { 490, 202, 230, 190 }, "INTERFACE" }, { { 732, 202, 232, 190 }, tr ("SOBRE", "ABOUT") } };
             on.setBounds (110, 4, 62, 26);
-            row ({ &th, &am, &at, &ho, &re }, { 10, 40, 760, 140 });
+            row ({ &th, &am, &at, &ho, &re }, { 6, 40, 588, 140 });
+            gOn.setBounds (760, 4, 62, 26);
+            row ({ &gTh, &gHo, &gRe }, { 618, 40, 340, 140 });
             law.setBounds (16, 232, 240, 28);
             row ({ &wt, &ot, &mx }, { 10, 270, 360, 116 });
             int x = 502, y = 236;
@@ -674,6 +683,7 @@ private:
         };
     }
     juce::OwnedArray<juce::TextButton> sizeBtns;
+    juce::TextButton* logoutBtn = nullptr;
 
     void layoutAdvanced()
     {
@@ -753,6 +763,7 @@ private:
         undoBtn.setEnabled (proc.undo.canUndo());
         redoBtn.setEnabled (proc.undo.canRedo());
         if (presetBtn.name != proc.currentPresetName()) refreshHeader();
+        if (logoutBtn != nullptr) logoutBtn->setEnabled (lic::License::get().hasKey());
         static constexpr float scales[] = { 0.75f, 1.0f, 1.25f, 1.5f, 2.0f };
         for (int i = 0; i < sizeBtns.size(); ++i)
             sizeBtns[i]->setToggleState (std::abs (proc.uiScale - scales[i]) < 0.02f, juce::dontSendNotification);
