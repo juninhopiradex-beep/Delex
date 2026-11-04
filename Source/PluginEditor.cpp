@@ -398,7 +398,7 @@ private:
         addAndMakeVisible (advView);
         advView.addAndMakeVisible (echoC);
         advView.addAndMakeVisible (phaseC);
-        const juce::StringArray names { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "TAPS", "UTILITIES" };
+        const juce::StringArray names { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "TAPS", "VOCAL", "LAB", "UTILITIES" };
         for (int i = 0; i < names.size(); ++i)
         {
             auto* b = tabs.add (new juce::TextButton (names[i]));
@@ -420,7 +420,9 @@ private:
         buildMod (*pages[5]);
         buildPerform (*pages[6]);
         buildTaps (*pages[7]);
-        buildUtilities (*pages[8]);
+        buildVocal (*pages[8]);
+        buildLab (*pages[9]);
+        buildUtilities (*pages[10]);
     }
 
     using K = Knob::Size;
@@ -901,6 +903,163 @@ private:
     juce::OwnedArray<juce::TextButton> laneBtns;
     int grooveSel = -1;
 
+    // ------------------------------------------------------------------ VOCAL: Throw Map, fonte, guard, unmask
+    void buildVocal (Page& p)
+    {
+        auto& on = p.add (std::make_unique<ToggleChip> (s, id::tmap_on, "THROW MAP", col::coral,
+                          tr ("Com o DAW a tocar, o envio abre nos passos marcados (combina com SÓ THROWS em PERFORM)", "With the DAW playing, the send opens on the marked steps (pair it with THROWS ONLY in PERFORM)")));
+        auto& bars = p.add (std::make_unique<ChoiceBox> (s, id::tmap_bars, tr ("Tamanho do mapa (repete-se em ciclo)", "Map length (loops)"),
+                            juce::StringArray { tr ("1 COMPASSO", "1 BAR"), tr ("2 COMPASSOS", "2 BARS"), tr ("4 COMPASSOS", "4 BARS"), tr ("8 COMPASSOS", "8 BARS") }));
+        auto& clr = p.add (std::make_unique<juce::TextButton> (tr ("LIMPAR", "CLEAR")));
+        clr.onClick = [this] { proc.clearThrowMap(); };
+        auto& map = p.add (std::make_unique<ThrowMapEditor> (proc));
+        throwMap = &map;
+        auto& sug = p.add (std::make_unique<juce::TextButton> (tr ("VER PRESETS SUGERIDOS", "SEE SUGGESTED PRESETS")));
+        sug.setTooltip (tr ("Abre o browser na categoria que combina com a fonte detectada", "Opens the browser on the category that matches the detected source"));
+        sug.onClick = [this]
+        {
+            const int src = proc.analyser.source.load();
+            openBrowser();
+            if (browser != nullptr && src >= 0) browser->showCategory (InputAnalyser::sourceCategory (src));
+        };
+        auto& gOn = p.add (std::make_unique<ToggleChip> (s, id::guard, "GUARD", col::cyan,
+                           tr ("Protege os ecos em mono, telemóvel e clube: corrige ecos em contrafase, limita a largura e põe os graves em mono", "Protects the echoes on mono, phones and clubs: fixes out-of-phase echoes, limits width and makes the lows mono")));
+        auto& gAmt = p.add (knob (s, id::guard_amt, tr ("FORÇA", "STRENGTH"), "", col::cyan, K::Small, false, tr ("Correlação mínima dos ecos (mais força = mais seguro, menos largo)", "Minimum echo correlation (more strength = safer, less wide)")));
+        auto& um = p.add (knob (s, id::unmask, "UNMASK", "", col::violet, K::Small, false,
+                          tr ("Os ecos baixam só nas bandas onde a fonte (ou o sidechain) está a tocar — a voz fica limpa sem perder a cauda", "The echoes duck only in the bands where the source (or sidechain) is playing — the vocal stays clear without losing the tail")));
+        p.extraPaint = [this, &p] (juce::Graphics& g)
+        {
+            // fonte detectada
+            {
+                auto r = p.sections[1].r.toFloat().reduced (14.0f).withTrimmedTop (30.0f);
+                const int src = proc.analyser.source.load();
+                label (g, tr ("O QUE ESTÁ A ENTRAR", "WHAT'S COMING IN"), r.removeFromTop (14.0f), 10.5f, W::Semi, col::dim, juce::Justification::centredLeft, 0.16f);
+                label (g, InputAnalyser::sourceName (src, piradex::i18n::isPortuguese()), r.removeFromTop (30.0f), 22.0f, W::Bold, col::cyan, juce::Justification::centredLeft, 0.02f);
+                g.setColour (col::muted); g.setFont (font (12.5f));
+                g.drawFittedText (src < 0 ? tr ("Toca alguma coisa para o DELEX ouvir.", "Play something so DELEX can listen.")
+                                          : tr ("Confiança ", "Confidence ") + num (proc.analyser.sourceConfidence.load() * 100.0f, 0) + " %" + tr (" (estimativa)", " (estimate)"),
+                                  r.removeFromTop (20.0f).toNearestInt(), juce::Justification::topLeft, 1);
+            }
+            // guard: correlação e redução
+            {
+                auto r = p.sections[2].r.toFloat().withTrimmedLeft (150.0f).reduced (14.0f).withTrimmedTop (30.0f);
+                const float c = proc.wetCorr.load();
+                label (g, tr ("CORRELAÇÃO DOS ECOS", "ECHO CORRELATION"), r.removeFromTop (14.0f), 10.5f, W::Semi, col::dim, juce::Justification::centredLeft, 0.16f);
+                auto bar = r.removeFromTop (14.0f).withTrimmedTop (2.0f);
+                g.setColour (col::deep); g.fillRoundedRectangle (bar, 3.0f);
+                const float cx = bar.getCentreX(), x = cx + c * bar.getWidth() * 0.5f;
+                g.setColour (c < 0 ? col::coral : col::green);
+                g.fillRect (juce::Rectangle<float>::leftTopRightBottom (std::min (cx, x), bar.getY() + 2, std::max (cx, x), bar.getBottom() - 2));
+                g.setColour (col::axis); g.drawVerticalLine ((int) cx, bar.getY(), bar.getBottom());
+                r.removeFromTop (10.0f);
+                g.setColour (col::text2); g.setFont (mono (12.0f));
+                g.drawText ("S " + String (-proc.guardDb.load(), 1) + " dB   " + tr ("corr ", "corr ") + String (c, 2), r.removeFromTop (16.0f), juce::Justification::centredLeft);
+            }
+            // unmask: 4 bandas
+            {
+                auto r = p.sections[3].r.toFloat().withTrimmedLeft (150.0f).reduced (14.0f).withTrimmedTop (30.0f);
+                const String names[4] = { tr ("GRAVES", "LOWS"), tr ("MÉD.-GRAVES", "LOW-MIDS"), tr ("MÉD.-AGUDOS", "HIGH-MIDS"), tr ("AGUDOS", "HIGHS") };
+                for (int b = 0; b < 4; ++b)
+                {
+                    auto row = r.removeFromTop (22.0f);
+                    label (g, names[b], row.removeFromLeft (90.0f), 10.5f, W::Semi, col::muted, juce::Justification::centredLeft, 0.08f);
+                    auto bar = row.withSizeKeepingCentre (row.getWidth(), 8.0f);
+                    g.setColour (col::deep); g.fillRoundedRectangle (bar, 3.0f);
+                    const float db = juce::jlimit (0.0f, 12.0f, proc.unmaskDb[b].load());
+                    g.setColour (col::violet); g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * db / 12.0f), 3.0f);
+                }
+            }
+        };
+        p.layout = [&p, &on, &bars, &clr, &map, &sug, &gOn, &gAmt, &um]
+        {
+            p.sections = { { { 0, 0, 640, 236 }, "THROW MAP" }, { { 652, 0, 312, 236 }, tr ("FONTE DETECTADA", "DETECTED SOURCE") },
+                           { { 0, 248, 474, 144 }, "TRANSLATION GUARD" }, { { 486, 248, 478, 144 }, "SPECTRAL UNMASK" } };
+            on.setBounds (100, 4, 110, 26); bars.setBounds (220, 4, 130, 26); clr.setBounds (360, 4, 80, 26);
+            map.setBounds (10, 36, 620, 192);
+            sug.setBounds (666, 150, 284, 30);
+            gOn.setBounds (160, 252, 70, 26);
+            gAmt.setBounds (14, 272, 120, 116);
+            um.setBounds (500, 272, 120, 116);
+        };
+    }
+    ThrowMapEditor* throwMap = nullptr;
+
+    // ------------------------------------------------------------------ LAB: Delay Match e Tempo Follow
+    void buildLab (Page& p)
+    {
+        auto& drop = p.add (std::make_unique<DropZone>());
+        drop.onFile = [this] (const juce::File& f) { proc.startDelayMatch (f); };
+        auto& open = p.add (std::make_unique<juce::TextButton> (tr ("ABRIR FICHEIRO…", "OPEN FILE…")));
+        open.onClick = [this]
+        {
+            chooser = std::make_unique<juce::FileChooser> (tr ("Escolhe a referência", "Choose the reference"), juce::File(), "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3;*.m4a");
+            chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                  [this] (const juce::FileChooser& fc) { if (fc.getResult().existsAsFile()) proc.startDelayMatch (fc.getResult()); });
+        };
+        auto& apply = p.add (std::make_unique<juce::TextButton> (tr ("APLICAR AO DELEX", "APPLY TO DELEX")));
+        apply.getProperties().set ("solid", true);
+        apply.setColour (juce::TextButton::buttonOnColourId, col::coral);
+        apply.setToggleState (true, juce::dontSendNotification);
+        apply.onClick = [this] { proc.applyDelayMatch(); };
+        matchApply = &apply;
+        auto& tf = p.add (std::make_unique<ToggleChip> (s, id::tempo_follow, tr ("SEGUIR TEMPO", "FOLLOW TEMPO"), col::green,
+                          tr ("Usa o tempo ouvido na entrada em vez do tempo do DAW (ao vivo, ou num DAW sem tempo)", "Uses the tempo heard at the input instead of the DAW tempo (live, or in a DAW without tempo)")));
+        p.extraPaint = [this, &p] (juce::Graphics& g)
+        {
+            // resultado do Delay Match
+            auto r = p.sections[0].r.toFloat().reduced (14.0f).withTrimmedTop (232.0f);
+            const int st = proc.matchState.load();
+            matchApply->setEnabled (st == DelexProcessor::MatchDone);
+            g.setColour (col::muted); g.setFont (font (13.0f));
+            if (st == DelexProcessor::MatchBusy) g.drawText (tr ("A ouvir ", "Listening to ") + proc.matchFileName + "…", r.removeFromTop (20.0f), juce::Justification::centredLeft);
+            else if (st == DelexProcessor::MatchFailed)
+            {
+                const auto e = proc.getMatchResult().error;
+                g.setColour (col::coral);
+                g.drawFittedText (e == "format" ? tr ("Formato não suportado.", "Unsupported format.")
+                                : e == "short" ? tr ("Ficheiro demasiado curto (mínimo 3 s).", "File too short (minimum 3 s).")
+                                : e == "silent" ? tr ("O ficheiro está em silêncio.", "The file is silent.")
+                                : tr ("Não encontrei um eco claro. Experimenta a voz isolada (stem) da referência.", "No clear echo found. Try the reference's isolated vocal (stem)."),
+                                  r.removeFromTop (40.0f).toNearestInt(), juce::Justification::topLeft, 2);
+            }
+            else if (st == DelexProcessor::MatchDone)
+            {
+                const auto m = proc.getMatchResult();
+                label (g, proc.matchFileName, r.removeFromTop (18.0f), 12.5f, W::Semi, col::text2, juce::Justification::centredLeft, 0.0f);
+                r.removeFromTop (6.0f);
+                const String cells[6][2] = {
+                    { tr ("TEMPO", "TIME"), num (m.timeMs, 0) + " ms" }, { "FEEDBACK", num (m.feedback * 100.0f, 0) + " %" },
+                    { "TONE", num (m.tone, 0) }, { tr ("LARGURA", "WIDTH"), num (m.widthPct, 0) + " %" },
+                    { "PING-PONG", m.pingPong ? tr ("SIM", "YES") : tr ("NÃO", "NO") }, { tr ("CONFIANÇA", "CONFIDENCE"), num (m.confidence * 100.0f, 0) + " %" } };
+                auto row = r.removeFromTop (44.0f);
+                const float w = row.getWidth() / 6.0f;
+                for (int i = 0; i < 6; ++i)
+                {
+                    auto c = row.removeFromLeft (w);
+                    label (g, cells[i][0], c.removeFromTop (14.0f), 10.0f, W::Semi, col::dim, juce::Justification::centredLeft, 0.14f);
+                    label (g, cells[i][1], c, 16.0f, W::Bold, col::coral, juce::Justification::centredLeft, 0.0f);
+                }
+            }
+            // tempo seguido
+            auto t = p.sections[1].r.toFloat().reduced (14.0f).withTrimmedTop (40.0f);
+            const float fb = proc.analyser.followBpm.load();
+            label (g, tr ("TEMPO OUVIDO", "TEMPO HEARD"), t.removeFromTop (14.0f), 10.5f, W::Semi, col::dim, juce::Justification::centredLeft, 0.16f);
+            label (g, fb > 0 ? num (fb, 1) + " BPM" : u8 ("—"), t.removeFromTop (30.0f), 22.0f, W::Bold, col::green, juce::Justification::centredLeft, 0.02f);
+            g.setColour (col::muted); g.setFont (font (12.5f));
+            g.drawText (tr ("Em uso: ", "In use: ") + num (proc.hostBpm.load(), 1) + " BPM", t.removeFromTop (18.0f), juce::Justification::centredLeft);
+        };
+        p.layout = [&p, &drop, &open, &apply, &tf]
+        {
+            p.sections = { { { 0, 0, 640, 392 }, "DELAY MATCH" }, { { 652, 0, 312, 186 }, tr ("TEMPO", "TEMPO") } };
+            drop.setBounds (14, 34, 612, 150);
+            open.setBounds (14, 194, 160, 28);
+            apply.setBounds (466, 346, 160, 32);
+            tf.setBounds (800, 4, 150, 26);
+        };
+    }
+    std::unique_ptr<juce::FileChooser> chooser;
+    juce::TextButton* matchApply = nullptr;
+
     void buildUtilities (Page& p)
     {
         auto& on = p.add (std::make_unique<ToggleChip> (s, id::duck, "DUCK", col::coral, tr ("Liga o ducker", "Turns the ducker on")));
@@ -1078,6 +1237,8 @@ private:
             if (pages[5]->isVisible()) for (auto* m : srcMeters) m->tick();
             if (pages[6]->isVisible()) { for (auto* pb : pads) pb->tick(); pages[6]->repaint (430, 4, 90, 26); }
             if (tapEditor != nullptr && pages[7]->isVisible()) { tapEditor->tick(); if (slowTick % 3 == 0) pages[7]->repaint (712, 0, 252, 392); }
+            if (throwMap != nullptr && pages[8]->isVisible()) { throwMap->tick(); if (slowTick % 3 == 0) pages[8]->repaint(); }
+            if (pages[9]->isVisible() && slowTick % 3 == 0) pages[9]->repaint();
             if (textureHeads != nullptr) textureHeads->setVisible (std::lround (v.model) == 2);
             if (++slowTick % 6 == 0) pages[currentTab]->repaint();   // textos dinâmicos (ordem, limitador, matriz)
         }

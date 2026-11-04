@@ -158,6 +158,12 @@ struct Params
     TapsMode tapsMode = TapsMode::Off;
     float tapsLevel = 1.0f;
     float bpm = 120.0f;
+
+    // --- v1.0 vaga D
+    bool  guard = false;            // Translation Guard: largura protegida + graves dos ecos em mono
+    float guardStrength = 0.5f;     // 0 … 1
+    float unmask = 0.0f;            // 0 … 1: os ecos baixam só nas bandas onde a fonte toca
+    bool  throwOpen = false;        // envio aberto pelo Throw Map (sem throw retroactivo)
 };
 
 // -----------------------------------------------------------------------------
@@ -450,6 +456,10 @@ public:
         for (auto& ps : pitchBuf) ps.clear();
         for (auto& t : tapDl) t.clear();
         for (auto& st : tapState) st = TapRun {};
+        for (auto& f : umK) f.reset();
+        for (auto& ch : umW) for (auto& f : ch) f.reset();
+        for (int b = 0; b < 4; ++b) { umEnv[b] = 0; umGain[b] = 1; }
+        unmaskActive = false; guardSide = 1; guardCorr = 1; gxy = gxx = gyy = 0; pxy = pxx = pyy = 0; guardFlip = 0; guardFlipped = false; guardLP.reset();
         thrEnv = 0; thrAbove = false; thrCount = thrBelow = 0; throwPrev = false;
         pitchPh = 0; revPh[0] = revPh[1] = 0;
         stopSpeed = 1; stopExtra = 0; stopGain = 1; stopping = false;
@@ -545,7 +555,7 @@ public:
             iL *= preG; iR *= preG;
             hist[0].push (iL); hist[1].push (iR);
             autoThrow (dryL, dryR, frz > 0.5f);
-            const float sendS = sm.send.next (tgt.throwOnly && ! tgt.throwNow ? 0.0f : 1.0f);
+            const float sendS = sm.send.next (tgt.throwOnly && ! (tgt.throwNow || tgt.throwOpen) ? 0.0f : 1.0f);
             iL *= inGate * sendS;  iR *= inGate * sendS;
             tapDl[0].push (iL); tapDl[1].push (iR);
 
@@ -602,6 +612,7 @@ public:
             }
             const float duckG = ducker (kL, kR) * gate (kL, kR);
             wL *= duckG; wR *= duckG;
+            if (tgt.unmask > 0.001f || unmaskActive) spectralUnmask (wL, wR, 0.5f * (kL + kR));
             {
                 const float rl = Rout.a * wL + Rout.b * wR, rr = Rout.c * wL + Rout.d * wR;
                 const float m = 0.5f * (rl + rr);
@@ -612,6 +623,7 @@ public:
                 wL = (m + s) * norm;
                 wR = (m - s) * norm;
             }
+            if (tgt.guard || guardSide < 0.999f || guardFlip > 0.001f) translationGuard (wL, wR);
             const float mk = sm.makeup.next (makeup) * sm.loud.next (loudComp);   // saturação + volume constante (fora do loop)
             wL *= wetG * mk; wR *= wetG * mk;
             if (hissGain > 0.0f) { wL += hissGain * hissNoise (0); wR += hissGain * hissNoise (1); }
@@ -817,7 +829,7 @@ private:
         snap (sm.mono, tgt.routing == Routing::Mono ? 1.0f : 0.0f);
         snap (sm.makeup, makeup);
         snap (sm.loud, loudComp);
-        snap (sm.send, tgt.throwOnly && ! tgt.throwNow ? 0.0f : 1.0f);
+        snap (sm.send, tgt.throwOnly && ! (tgt.throwNow || tgt.throwOpen) ? 0.0f : 1.0f);
         snap (sm.sculpt, tgt.tapsMode == TapsMode::Sculpt ? 1.0f : 0.0f);
         snap (sm.taps, tgt.tapsMode == TapsMode::Off ? 0.0f : tgt.tapsLevel);
         for (int c = 0; c < 2; ++c)
@@ -910,6 +922,16 @@ private:
         else loudComp = 1.0f;
         hissGain = tgt.hiss > 0.0f ? dbToGain (-92.0f + 44.0f * tgt.hiss) : 0.0f;   // −92 … −48 dBFS
 
+        if (snap)
+        {
+            static constexpr float xo[3] = { 300.0f, 1200.0f, 4500.0f };
+            for (int b = 0; b < 3; ++b)
+            {
+                umK[b].setLowpass (std::min (xo[b], 0.45f * sr), 0.7071f, sr);
+                for (int c = 0; c < 2; ++c) umW[c][b].setLowpass (std::min (xo[b], 0.45f * sr), 0.7071f, sr);
+            }
+            guardLP.set (140.0f, sr);
+        }
         if (snap || monitorPrev != (int) tgt.monitor)
         {
             monitorPrev = (int) tgt.monitor;
@@ -1177,6 +1199,83 @@ private:
             }
         }
         return x;
+    }
+
+    // ---------------------------------------------------------------- vaga D
+public:
+    float guardReductionDb() const noexcept { return -gainToDb (guardSide); }
+    bool  guardFlipping() const noexcept     { return guardFlipped; }
+    float wetCorrelation() const noexcept    { return guardCorr; }
+    float unmaskReductionDb (int band) const noexcept { return -gainToDb (umGain[(size_t) std::clamp (band, 0, 3)]); }
+private:
+    // Translation Guard (protecção para mono, telemóvel e clube):
+    //  1) ecos em contrafase (somam a zero em mono) → inverte suavemente a polaridade do lado direito dos ecos;
+    //  2) se mesmo assim a correlação ficar abaixo do alvo (ecos largos demais) → reduz o lado (S) devagar;
+    //  3) graves dos ecos (< 140 Hz) sempre em mono.
+    float guardSide = 1.0f, guardCorr = 1.0f, gxy = 0, gxx = 0, gyy = 0, pxy = 0, pxx = 0, pyy = 0, guardFlip = 0;
+    bool guardFlipped = false;
+    OnePoleTPT guardLP;
+    void translationGuard (float& l, float& r) noexcept
+    {
+        const float a = 1.0f / (0.3f * sr);
+        pxy += a * (l * r - pxy); pxx += a * (l * l - pxx); pyy += a * (r * r - pyy);
+        const float pden = std::sqrt (pxx * pyy);
+        const float pre = pden > 1.0e-9f ? pxy / pden : 1.0f;
+        if (tgt.guard && pden > 1.0e-7f)
+        {
+            if (! guardFlipped && pre < -0.15f) guardFlipped = true;
+            else if (guardFlipped && pre > 0.05f) guardFlipped = false;
+        }
+        else if (! tgt.guard) guardFlipped = false;
+        guardFlip += ((guardFlipped ? 1.0f : 0.0f) - guardFlip) * (1.0f / (0.15f * sr));
+        r *= 1.0f - 2.0f * guardFlip;
+
+        gxy += a * (l * r - gxy); gxx += a * (l * l - gxx); gyy += a * (r * r - gyy);
+        const float den = std::sqrt (gxx * gyy);
+        guardCorr = den > 1.0e-9f ? clampf (gxy / den, -1.0f, 1.0f) : 1.0f;
+        if (! tgt.guard) guardSide = std::min (1.0f, guardSide + 1.0f / (0.2f * sr));
+        else
+        {
+            const float target = 0.5f * clampf (tgt.guardStrength, 0.0f, 1.0f);    // correlação mínima: 0 … +0,5
+            if (den > 1.0e-7f && guardCorr < target) guardSide = std::max (0.25f, guardSide * (1.0f - 1.0f / (0.15f * sr)));
+            else guardSide = std::min (1.0f, guardSide * (1.0f + 1.0f / (1.2f * sr)));
+        }
+        const float m = 0.5f * (l + r);
+        float sd = 0.5f * (l - r);
+        if (tgt.guard) sd -= guardLP.lp (sd);                  // graves em mono
+        else guardLP.lp (sd);
+        sd *= guardSide;
+        l = m + sd; r = m - sd;
+    }
+
+    // Spectral Unmask: 4 bandas complementares (soma perfeita). Em cada banda o eco baixa
+    // até 12 dB na proporção do nível da fonte (ou do sidechain) nessa mesma banda.
+    bool unmaskActive = false;
+    SVF umW[2][3], umK[3];
+    float umEnv[4] {}, umGain[4] { 1, 1, 1, 1 };
+    void spectralUnmask (float& l, float& r, float key) noexcept
+    {
+        float kb[4];
+        { float rest = key; for (int b = 0; b < 3; ++b) { const float lo = umK[b].process (rest); kb[b] = lo; rest -= lo; } kb[3] = rest; }
+        const float att = 1.0f - std::exp (-1.0f / (0.003f * sr)), rel = 1.0f - std::exp (-1.0f / (0.12f * sr));
+        bool any = false;
+        for (int b = 0; b < 4; ++b)
+        {
+            const float a = std::fabs (kb[b]);
+            umEnv[b] += (a > umEnv[b] ? att : rel) * (a - umEnv[b]);
+            const float over = clampf ((gainToDbFast (umEnv[b]) + 45.0f) / 39.0f, 0.0f, 1.0f);   // −45 … −6 dBFS
+            const float target = dbToGainFast (-12.0f * clampf (tgt.unmask, 0.0f, 1.0f) * over);
+            umGain[b] += (target < umGain[b] ? att : rel) * (target - umGain[b]);
+            any |= umGain[b] < 0.999f;
+        }
+        unmaskActive = any || tgt.unmask > 0.001f;
+        float* ch[2] = { &l, &r };
+        for (int c = 0; c < 2; ++c)
+        {
+            float rest = *ch[c], out = 0;
+            for (int b = 0; b < 3; ++b) { const float lo = umW[c][b].process (rest); out += umGain[b] * lo; rest -= lo; }
+            *ch[c] = out + umGain[3] * rest;
+        }
     }
 
     // ---------------------------------------------------------------- vaga C: taps

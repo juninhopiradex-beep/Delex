@@ -4,6 +4,7 @@
 #pragma once
 
 #include "Widgets.h"
+#include "Search.h"
 
 namespace delex::ui
 {
@@ -15,7 +16,7 @@ public:
 
     explicit PresetBrowser (DelexProcessor& p) : proc (p)
     {
-        search.setTextToShowWhenEmpty (tr ("Nome, fonte ou resultado…", "Name, source or result…"), col::dim);
+        search.setTextToShowWhenEmpty (tr ("Descreve: \"voz escura e larga\", \"caixa curta\"…", "Describe: \"dark wide vocal\", \"short snare\"…"), col::dim);
         search.setFont (font (14.0f));
         search.setIndents (10, 7);
         search.onTextChange = [this] { rebuild(); };
@@ -96,6 +97,14 @@ public:
     }
 
     void refreshList() { rebuild(); }
+    void setSearchText (const juce::String& t) { search.setText (t, juce::dontSendNotification); rebuild(); }
+    void showCategory (const juce::String& cat)
+    {
+        const int i = presetCategories().indexOf (cat);
+        if (i >= 0) { search.clear(); category = 2 + i; rebuild(); }
+    }
+    int numResults() const { return (int) entries.size(); }
+    juce::String resultName (int i) const { return juce::isPositiveAndBelow (i, (int) entries.size()) ? entries[(size_t) i].name : juce::String(); }
 
     void paint (juce::Graphics& g) override
     {
@@ -203,6 +212,7 @@ private:
         int factory = -1;
         juce::File file;
         juce::String sub;
+        float score = 0;
     };
 
     static juce::String timeOf (const char* data)
@@ -227,11 +237,15 @@ private:
         const auto q = search.getText().trim().toLowerCase();
         const auto& fp = factoryPresets();
         const int ncat = presetCategories().size();
+        const auto tokens = search::queryTokens (q);
 
-        auto matches = [&] (const Entry& e)
+        // pesquisa por descrição (sinónimos PT/EN, nome > etiquetas > descrição)
+        auto matches = [&] (Entry& e)
         {
             if (q.isEmpty()) return true;
-            return (e.name + " " + e.category + " " + e.sub + " " + e.desc + " " + e.use + " " + e.tags).toLowerCase().contains (q);
+            if (e.factory >= 0) e.score = search::score (search::fieldsOf (fp[(size_t) e.factory]), tokens);
+            else { search::Fields f; f.name = search::fold (e.name); e.score = search::score (f, tokens); }
+            return e.score > 0.0f;
         };
 
         for (int i = 0; i < (int) fp.size(); ++i)
@@ -251,6 +265,8 @@ private:
             if ((q.isNotEmpty() || inCat) && matches (e)) entries.push_back (e);
         }
 
+        if (q.isNotEmpty())
+            std::stable_sort (entries.begin(), entries.end(), [] (const Entry& a, const Entry& b) { return a.score > b.score; });
         heading = q.isNotEmpty() ? tr ("Resultados para “", "Results for “") + search.getText().trim() + juce::String::fromUTF8 ("”")
                                  : catButtons[category]->getButtonText();
         for (int i = 0; i < catButtons.size(); ++i)

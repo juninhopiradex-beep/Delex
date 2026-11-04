@@ -108,3 +108,9 @@ Gerada automaticamente a partir do código (tests/test_plugin.cpp). IDs estávei
 | `taps_swing` | Taps Swing | 0 % … 100 % | 0 % | linear | sim |
 | `harm_key` | Harmony Key | Auto / C / C# / D / D# / E / F / F# / G / G# / A / A# / B | Auto | escolha | sim |
 | `harm_scale` | Harmony Scale | Auto / Major / Minor | Auto | escolha | sim |
+| `guard` | Translation Guard | off / on | Off | on/off | sim |
+| `guard_amt` | Guard Strength | 0 % … 100 % | 50 % | linear | sim |
+| `unmask` | Spectral Unmask | 0 % … 100 % | 0 % | linear | sim |
+| `tempo_follow` | Tempo Follow | off / on | Off | on/off | sim |
+| `tmap_on` | Throw Map | off / on | Off | on/off | sim |
+| `tmap_bars` | Throw Map Length | 1 bar / 2 bars / 4 bars / 8 bars | 4 bars | escolha | sim |

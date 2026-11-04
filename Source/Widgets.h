@@ -1121,6 +1121,109 @@ private:
     juce::Rectangle<float> area;
 };
 
+// ---------------------------------------------------------------- Throw Map: compassos × 16 semicolcheias
+//  Marca as palavras/frases a atirar; com o DAW a tocar, o envio abre nesses passos.
+class ThrowMapEditor : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    explicit ThrowMapEditor (DelexProcessor& p) : proc (p)
+    {
+        setTooltip (tr ("Clica ou arrasta para marcar os passos (1/16) onde o envio para o delay abre. Segue a posição do DAW.",
+                        "Click or drag to mark the steps (1/16) where the send to the delay opens. Follows the DAW position."));
+    }
+    int bars() const { static const int b[4] = { 1, 2, 4, 8 }; return b[juce::jlimit (0, 3, (int) std::lround (proc.raw.load().tmap_bars))]; }
+    void tick()
+    {
+        const int nb = bars();
+        const bool pl = proc.hostPlaying.load();
+        const int st = pl ? (int) std::floor (proc.currentPpq.load() * 4.0 + 1.0e-6) % (16 * nb) : -1;
+        if (st != playStep || nb != shownBars) { playStep = st; shownBars = nb; repaint(); }
+    }
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        g.setColour (col::deep); g.fillRoundedRectangle (r, 8.0f);
+        const int nb = bars();
+        area = r.reduced (34.0f, 8.0f).withTrimmedRight (-24.0f);
+        const float rowH = area.getHeight() / (float) nb, w = area.getWidth() / 16.0f;
+        for (int b = 0; b < nb; ++b)
+        {
+            g.setColour (col::dim); g.setFont (mono (10.0f));
+            g.drawText (juce::String (b + 1), juce::Rectangle<float> (r.getX() + 6, area.getY() + rowH * (float) b, 24, rowH), juce::Justification::centredLeft);
+            for (int k = 0; k < 16; ++k)
+            {
+                const int st = b * 16 + k;
+                auto c = juce::Rectangle<float> (area.getX() + w * (float) k, area.getY() + rowH * (float) b, w, rowH).reduced (1.5f);
+                const bool on = proc.throwMapStep (st);
+                g.setColour (on ? col::coral : ((k % 4) == 0 ? col::panel2 : col::panel));
+                g.fillRoundedRectangle (c, 2.5f);
+                if (st == playStep) { g.setColour (col::text.withAlpha (0.8f)); g.drawRoundedRectangle (c, 2.5f, 1.5f); }
+            }
+        }
+    }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        const int st = stepAt (e.position);
+        if (st < 0) return;
+        proc.undo.beginNewTransaction();
+        paintValue = ! proc.throwMapStep (st);
+        proc.setThrowMapStep (st, paintValue); repaint();
+    }
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        const int st = stepAt (e.position);
+        if (st >= 0 && proc.throwMapStep (st) != paintValue) { proc.setThrowMapStep (st, paintValue); repaint(); }
+    }
+private:
+    int stepAt (juce::Point<float> p) const
+    {
+        if (! area.contains (p)) return -1;
+        const int nb = bars();
+        const int b = (int) ((p.y - area.getY()) / (area.getHeight() / (float) nb)), k = (int) ((p.x - area.getX()) / (area.getWidth() / 16.0f));
+        return juce::isPositiveAndBelow (b, nb) && juce::isPositiveAndBelow (k, 16) ? b * 16 + k : -1;
+    }
+    DelexProcessor& proc;
+    juce::Rectangle<float> area;
+    int playStep = -1, shownBars = 0;
+    bool paintValue = true;
+};
+
+// ---------------------------------------------------------------- zona para largar um ficheiro (Delay Match)
+class DropZone : public juce::Component, public juce::FileDragAndDropTarget
+{
+public:
+    std::function<void (const juce::File&)> onFile;
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat().reduced (1.0f);
+        g.setColour (hover ? col::coralDeep : col::deep); g.fillRoundedRectangle (r, 10.0f);
+        const float dash[] = { 6.0f, 5.0f };
+        juce::Path p; p.addRoundedRectangle (r, 10.0f);
+        juce::Path d; juce::PathStrokeType (1.4f).createDashedStroke (d, p, dash, 2);
+        g.setColour (hover ? col::coral : col::line2); g.fillPath (d);
+        label (g, tr ("LARGA AQUI UM FICHEIRO DE ÁUDIO", "DROP AN AUDIO FILE HERE"), r.withTrimmedBottom (r.getHeight() * 0.4f), 14.0f, W::Bold, hover ? col::coral : col::text2, juce::Justification::centredBottom, 0.12f);
+        g.setColour (col::muted); g.setFont (font (12.5f));
+        g.drawFittedText (tr ("WAV, AIFF, FLAC, OGG (e MP3/M4A no Mac). Melhor resultado: a voz isolada de uma referência (ex.: um stem de voz do STEMS4U).",
+                              "WAV, AIFF, FLAC, OGG (and MP3/M4A on Mac). Best result: the isolated vocal of a reference (e.g. a STEMS4U vocal stem)."),
+                          r.withTrimmedTop (r.getHeight() * 0.62f).reduced (20.0f, 0.0f).toNearestInt(), juce::Justification::centredTop, 2, 1.0f);
+    }
+    static bool isAudio (const juce::String& f)
+    {
+        return f.endsWithIgnoreCase (".wav") || f.endsWithIgnoreCase (".aif") || f.endsWithIgnoreCase (".aiff") || f.endsWithIgnoreCase (".flac")
+            || f.endsWithIgnoreCase (".ogg") || f.endsWithIgnoreCase (".mp3") || f.endsWithIgnoreCase (".m4a");
+    }
+    bool isInterestedInFileDrag (const juce::StringArray& files) override { for (auto& f : files) if (isAudio (f)) return true; return false; }
+    void fileDragEnter (const juce::StringArray&, int, int) override { hover = true; repaint(); }
+    void fileDragExit (const juce::StringArray&) override { hover = false; repaint(); }
+    void filesDropped (const juce::StringArray& files, int, int) override
+    {
+        hover = false; repaint();
+        for (auto& f : files) if (isAudio (f)) { if (onFile) onFile (juce::File (f)); break; }
+    }
+private:
+    bool hover = false;
+};
+
 // ---------------------------------------------------------------- barra de redução do ducker
 class GrBar : public juce::Component
 {

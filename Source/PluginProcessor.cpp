@@ -146,6 +146,18 @@ void DelexProcessor::timerCallback()
         captureState.store (CapIdle);
     }
 
+    // Throw Map → bits para a thread de áudio
+    {
+        const auto bits = apvts.state.getChildWithName ("THROWMAP").getProperty ("bits").toString();
+        if (bits != tmapPublished)
+        {
+            tmapPublished = bits;
+            uint32_t w[4] {};
+            for (int i = 0; i < juce::jmin (128, bits.length()); ++i) if (bits[i] == '1') w[i >> 5] |= 1u << (i & 31);
+            for (int k = 0; k < 4; ++k) tmapBits[(size_t) k].store (w[k]);
+        }
+    }
+
     // padrão actual → taps do motor (só publica quando muda)
     const auto v = raw.load();
     const auto pat = delex::taps::fromTree (apvts.state.getChildWithName (delex::taps::treeId()));
@@ -164,6 +176,64 @@ void DelexProcessor::timerCallback()
         tapShared = set;
         ++tapVersion;
     }
+}
+
+// ---------------------------------------------------------------------------- Throw Map
+bool DelexProcessor::throwMapStep (int step) const
+{
+    const auto bits = apvts.state.getChildWithName ("THROWMAP").getProperty ("bits").toString();
+    return juce::isPositiveAndBelow (step, bits.length()) && bits[step] == '1';
+}
+void DelexProcessor::setThrowMapStep (int step, bool on)
+{
+    if (! juce::isPositiveAndBelow (step, 128)) return;
+    auto t = apvts.state.getChildWithName ("THROWMAP");
+    if (! t.isValid()) { t = juce::ValueTree ("THROWMAP"); apvts.state.appendChild (t, nullptr); }
+    auto bits = t.getProperty ("bits").toString().paddedRight ('0', 128).substring (0, 128);
+    bits = bits.substring (0, step) + (on ? "1" : "0") + bits.substring (step + 1);
+    t.setProperty ("bits", bits, &undo);
+}
+void DelexProcessor::clearThrowMap()
+{
+    auto t = apvts.state.getChildWithName ("THROWMAP");
+    if (t.isValid()) { undo.beginNewTransaction(); t.setProperty ("bits", juce::String::repeatedString ("0", 128), &undo); }
+}
+
+// ---------------------------------------------------------------------------- Delay Match
+void DelexProcessor::startDelayMatch (const juce::File& f)
+{
+    if (matchState.load() == MatchBusy) return;
+    matchState = MatchBusy;
+    matchFileName = f.getFileName();
+    matchPool.addJob ([this, f]
+    {
+        auto r = delex::DelayMatch::analyseFile (f);
+        { const juce::ScopedLock sl (matchLock); matchResult = r; }
+        matchState = r.ok ? MatchDone : MatchFailed;
+    });
+}
+
+void DelexProcessor::applyDelayMatch()
+{
+    const auto r = getMatchResult();
+    if (! r.ok) return;
+    undo.beginNewTransaction();
+    auto setP = [this] (const char* pid, float plain) { if (auto* p = apvts.getParameter (pid)) { p->beginChangeGesture(); p->setValueNotifyingHost (p->convertTo0to1 (plain)); p->endChangeGesture(); } };
+    // perto de uma divisão musical do BPM actual (±3 %)? então sync
+    const auto& d = divisions();
+    int bestDiv = -1; double bestErr = 0.03;
+    for (size_t i = 0; i < d.size(); ++i)
+    {
+        const double ms = 60000.0 / juce::jmax (20.0, hostBpm.load()) * d[i].quarters;
+        const double err = std::abs (ms - r.timeMs) / r.timeMs;
+        if (err < bestErr) { bestErr = err; bestDiv = (int) i; }
+    }
+    if (bestDiv >= 0) { setP (id::sync, 1.0f); setP (id::div, (float) bestDiv); }
+    else { setP (id::sync, 0.0f); setP (id::time, juce::jlimit (1.0f, 8000.0f, r.timeMs)); }
+    setP (id::feedback, juce::jlimit (0.0f, 95.0f, r.feedback * 100.0f));
+    setP (id::tone, r.tone);
+    setP (id::routing, r.pingPong ? 1.0f : 0.0f);
+    setP (id::out_width, r.widthPct);
 }
 
 void DelexProcessor::applyGroove (int index)
@@ -271,7 +341,20 @@ void DelexProcessor::processAny (juce::AudioBuffer<Sample>& buffer)
         if (auto pos = ph->getPosition())
             if (auto hb = pos->getBpm()) { bpm = *hb; hasBpm = true; }
     if (! hasBpm && tapBpm > 0.0) bpm = tapBpm;
+    // Tempo Follow: segue o tempo ouvido na entrada (útil ao vivo ou sem tempo do DAW)
+    if (raw.load().tempo_follow > 0.5f)
+        if (const float fb = analyser.followBpm.load(); fb > 40.0f) bpm = fb;
     hostBpm = bpm; hostHasBpm = hasBpm;
+
+    // posição do DAW (Throw Map)
+    double ppq = 0.0; bool playing = false;
+    if (auto* ph = getPlayHead())
+        if (auto pos = ph->getPosition())
+        {
+            playing = pos->getIsPlaying();
+            if (auto pq = pos->getPpqPosition()) ppq = *pq; else playing = false;
+        }
+    currentPpq = ppq; hostPlaying = playing;
 
     // chave de sidechain (ducker, gate…): só se escolhida e ligada no DAW
     const float* keyL = nullptr; const float* keyR = nullptr;
@@ -339,6 +422,14 @@ void DelexProcessor::processAny (juce::AudioBuffer<Sample>& buffer)
         if (pads & (1 << PadFreeze)) ep.freeze = true;
         if (pads & (1 << PadThrow))  ep.throwNow = true;
         ep.padStop = (pads & (1 << PadStop)) != 0;
+        if (playing && v.tmap_on > 0.5f)
+        {
+            static constexpr int barsOf[4] = { 1, 2, 4, 8 };
+            const int steps = 16 * barsOf[juce::jlimit (0, 3, (int) std::lround (v.tmap_bars))];
+            const double q = ppq + (double) pos * juce::jmax (20.0, bpm) / (60.0 * getSampleRate());
+            const int st = (int) std::floor (q * 4.0 + 1.0e-6) % steps;
+            ep.throwOpen = st >= 0 && ((tmapBits[(size_t) (st >> 5)].load() >> (st & 31)) & 1u) != 0;
+        }
         engine.setParams (ep);
         engine.process (L + pos, R + pos, len, keyL != nullptr ? keyL + pos : nullptr, keyR != nullptr ? keyR + pos : nullptr);
     }
@@ -363,6 +454,8 @@ void DelexProcessor::processAny (juce::AudioBuffer<Sample>& buffer)
         outPeak[c] = juce::jmax (pkOut[c], outPeak[c].load() * 0.92f);
     }
     duckGr = engine.duckReductionDb();
+    guardDb = engine.guardReductionDb(); wetCorr = engine.wetCorrelation();
+    for (int b = 0; b < 4; ++b) unmaskDb[b] = engine.unmaskReductionDb (b);
     loopLimit = engine.loopLimiterDb();
     pushScope (L, R, n);
 

@@ -599,6 +599,50 @@ int main()
         std::printf ("[ok] harmonic echo: 440 Hz → %.0f Hz (5.ª acima)\n", f);
     }
 
+    // ===================================================================== vaga D
+    // D1) Translation Guard: ecos em contrafase (perigo em mono) → correlação puxada para cima
+    {
+        auto corrOf = [] (bool guard)
+        {
+            Params p = wetOnly(); p.timeMsL = p.timeMsR = 120; p.feedback = 0.4f; p.guard = guard; p.guardStrength = 0.5f;
+            Run r (p);
+            r.go (96000, [] (int i, float& l, float& rr) { const float x = 0.3f * std::sin (0.031f * (float) i) + 0.2f * std::sin (0.0071f * (float) i); l = x; rr = -x; });
+            double xy = 0, xx = 0, yy = 0;
+            for (size_t i = 72000; i < r.L.size(); ++i) { xy += r.L[i] * r.R[i]; xx += r.L[i] * r.L[i]; yy += r.R[i] * r.R[i]; }
+            return xy / std::sqrt (xx * yy + 1e-20);
+        };
+        const double off = corrOf (false), on = corrOf (true);
+        CHECK (off < -0.9 && on > 0.2, "guard: correlação %f → %f", off, on);
+        std::printf ("[ok] translation guard: correlação dos ecos %.2f → %.2f (soma em mono salva)\n", off, on);
+    }
+    // D2) Spectral Unmask: a voz (sidechain) só baixa os ecos na sua banda
+    {
+        auto bands = [] (float um)
+        {
+            Params p = wetOnly(); p.timeMsL = p.timeMsR = 200; p.feedback = 0.3f; p.unmask = um;
+            Engine e; e.prepare (SR, 256); e.setParams (p);
+            std::vector<float> l (256), r (256), kl (256), kr (256), out;
+            for (int b = 0; b < 600; ++b)
+            {
+                for (int i = 0; i < 256; ++i)
+                {
+                    const float t = (float) (b * 256 + i) / 48000.0f;
+                    l[(size_t) i] = r[(size_t) i] = 0.2f * std::sin (6.2831853f * 150.0f * t) + 0.2f * std::sin (6.2831853f * 8000.0f * t);
+                    kl[(size_t) i] = kr[(size_t) i] = 0.3f * std::sin (6.2831853f * 150.0f * t);   // chave só com graves
+                }
+                e.process (l.data(), r.data(), 256, kl.data(), kr.data());
+                out.insert (out.end(), l.begin(), l.end());
+            }
+            auto g = [&] (double f) { double s1 = 0, s2 = 0; const double c = 2 * std::cos (2 * 3.14159265358979 * f / SR);
+                for (size_t i = 96000; i < out.size(); ++i) { const double s0 = out[i] + c * s1 - s2; s2 = s1; s1 = s0; } return std::sqrt (s1 * s1 + s2 * s2 - c * s1 * s2); };
+            return std::make_pair (g (150.0), g (8000.0));
+        };
+        const auto a = bands (0), b = bands (1);
+        const double lowDrop = 20 * std::log10 (a.first / b.first), highDrop = 20 * std::log10 (a.second / b.second);
+        CHECK (lowDrop > 6.0 && std::fabs (highDrop) < 1.0, "unmask: graves −%f dB, agudos −%f dB", lowDrop, highDrop);
+        std::printf ("[ok] spectral unmask: ecos −%.1f dB na banda da chave, %.2f dB nos agudos\n", lowDrop, highDrop);
+    }
+
     // 14) Custo de CPU com todos os módulos activos
     {
         Params p; p.feedback = 0.7f; p.modDepthCents = 20; p.wow = 0.5f; p.diffAmount = 0.6f; p.dispSpreadMs = 15;

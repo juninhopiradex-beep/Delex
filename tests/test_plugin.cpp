@@ -3,6 +3,7 @@
 //  · double precision · e grava capturas da interface (Simple, cada aba Advanced, presets).
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "PresetBrowser.h"
 #include <cstdio>
 #include <random>
 #include <map>
@@ -21,6 +22,14 @@ static void setParam (DelexProcessor& p, const char* id, float plain)
     auto* prm = p.apvts.getParameter (id);
     prm->setValueNotifyingHost (prm->convertTo0to1 (plain));
 }
+struct TestPlayHead : juce::AudioPlayHead
+{
+    double ppq = 0, bpm = 120; bool playing = true;
+    juce::Optional<PositionInfo> getPosition() const override
+    {
+        PositionInfo i; i.setPpqPosition (ppq); i.setBpm (bpm); i.setIsPlaying (playing); return i;
+    }
+};
 static void pump (int ms) { juce::MessageManager::getInstance()->runDispatchLoopUntil (ms); }
 
 static void feedNoise (DelexProcessor& p, int blocks, int bs, float& peak, bool& finite, std::mt19937& g)
@@ -250,10 +259,10 @@ static void testControls (DelexProcessor& p)
     auto& ui = *ed;
     // vistas e abas
     check (press (ui, "ADVANCED") && p.advancedView, "ADVANCED abre a vista avançada");
-    const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "TAPS", "UTILITIES" };
+    const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "TAPS", "VOCAL", "LAB", "UTILITIES" };
     int tabOk = 0;
-    for (int i = 0; i < 9; ++i) if (press (ui, tabs[i]) && p.advancedTab == i) ++tabOk;
-    check (tabOk == 9, "9 abas abrem a página certa", tabOk, 9);
+    for (int i = 0; i < 11; ++i) if (press (ui, tabs[i]) && p.advancedTab == i) ++tabOk;
+    check (tabOk == 11, "11 abas abrem a página certa", tabOk, 11);
     check (press (ui, "SIMPLE") && ! p.advancedView, "SIMPLE volta à vista simples");
 
     // estilos
@@ -789,6 +798,158 @@ int main()
         }
     }
 
+    // 9) vaga D: Delay Match, Tempo Follow, fonte, Throw Map, pesquisa por descrição
+    std::printf ("Vaga D (delay match, tempo, fonte, throw map, pesquisa)\n");
+    {
+        // material de teste: "sílabas" aleatórias com eco de 375 ms e feedback 0,5
+        auto makeEchoed = [] (bool pingPong)
+        {
+            const double sr = 44100.0; const int n = (int) (sr * 20.0);
+            std::vector<float> dry ((size_t) n, 0.0f);
+            std::mt19937 g (11); std::uniform_real_distribution<float> u (0, 1);
+            double t = 0.2;
+            while (t < 18.0)
+            {
+                const double dur = 0.08 + 0.15 * u (g), f = 180.0 + 250.0 * u (g);
+                for (int i = (int) (t * sr); i < (int) ((t + dur) * sr) && i < n; ++i)
+                {
+                    const double x = (i / sr - t) / dur;
+                    dry[(size_t) i] += 0.4f * (float) (std::sin (2 * juce::MathConstants<double>::pi * f * i / sr) * std::sin (juce::MathConstants<double>::pi * x));
+                }
+                t += dur + 0.05 + (u (g) < 0.25f ? 1.2 * u (g) : 0.1 * u (g));
+            }
+            juce::AudioBuffer<float> b (2, n); b.clear();
+            const int T = (int) (0.375 * sr);
+            for (int i = 0; i < n; ++i)
+            {
+                b.setSample (0, i, dry[(size_t) i]); b.setSample (1, i, dry[(size_t) i]);
+                float gk = 1.0f;
+                for (int k = 1; k <= 8 && i - k * T >= 0; ++k)
+                {
+                    gk *= 0.5f;
+                    const float e = gk * dry[(size_t) (i - k * T)];
+                    if (! pingPong) { b.addSample (0, i, e); b.addSample (1, i, e); }
+                    else b.addSample ((k % 2) ? 0 : 1, i, e * 1.4f);
+                }
+            }
+            return std::make_pair (b, sr);
+        };
+        {
+            auto [b, sr] = makeEchoed (false);
+            const auto r = delex::DelayMatch::analyse (b, sr);
+            check (r.ok && std::abs (r.timeMs - 375.0f) < 12.0f, "delay match: tempo do eco", r.timeMs, 375.0);
+            check (r.feedback > 0.3f && r.feedback < 0.75f, "delay match: feedback estimado", r.feedback, 0.5);
+            check (! r.pingPong, "delay match: eco centrado não é ping-pong");
+            // ficheiro → análise em segundo plano → aplicar (120 BPM: 375 ms = 1/8D)
+            auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("delex_match_test.wav");
+            f.deleteFile();
+            {
+                juce::WavAudioFormat wav;
+                std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (f), sr, 2, 16, {}, 0));
+                if (w != nullptr) w->writeFromAudioSampleBuffer (b, 0, b.getNumSamples());
+            }
+            DelexProcessor d; d.prepareToPlay (48000.0, 256);
+            d.startDelayMatch (f);
+            for (int k = 0; k < 200 && d.matchState.load() == DelexProcessor::MatchBusy; ++k) juce::Thread::sleep (50);
+            check (d.matchState.load() == DelexProcessor::MatchDone, "delay match a partir de um ficheiro WAV");
+            d.applyDelayMatch();
+            check (plain (d, delex::id::sync) > 0.5f && std::lround (plain (d, delex::id::div)) == 7, "delay match aplica 1/8D com sync (120 BPM)", plain (d, delex::id::div), 7);
+            f.deleteFile();
+        }
+        {
+            auto [b, sr] = makeEchoed (true);
+            const auto r = delex::DelayMatch::analyse (b, sr);
+            check (r.ok && r.pingPong, "delay match: detecta ping-pong", r.timeMs, 375.0);
+        }
+
+        auto feed = [] (DelexProcessor& d, double seconds, const std::function<float (double)>& gen, double startT = 0)
+        {
+            const int bs = 480; juce::AudioBuffer<float> b (2, bs); juce::MidiBuffer m;
+            const int blocks = (int) (seconds * 48000.0 / bs);
+            for (int k = 0; k < blocks; ++k)
+            {
+                for (int i = 0; i < bs; ++i) { const float x = gen (startT + (k * bs + i) / 48000.0); b.setSample (0, i, x); b.setSample (1, i, x); }
+                d.processBlock (b, m);
+                if (k % 10 == 0) d.updateTapsNow();
+            }
+        };
+        // tempo follow: cliques a 100 BPM
+        {
+            DelexProcessor d; d.setRateAndBufferSizeDetails (48000.0, 480); d.prepareToPlay (48000.0, 480);
+            auto clicks = [] (double t) { const double ph = std::fmod (t, 0.6); return ph < 0.02 ? 0.7f * (float) std::sin (2 * juce::MathConstants<double>::pi * 900 * ph) * (float) std::exp (-ph / 0.005) : 0.0f; };
+            feed (d, 10.0, clicks);
+            const float bpm = d.analyser.followBpm.load();
+            check (std::abs (bpm - 100.0f) < 2.0f, "tempo follow: 100 BPM ouvidos", bpm, 100.0);
+            setParam (d, delex::id::tempo_follow, 1.0f);
+            feed (d, 0.2, clicks, 10.0);
+            check (std::abs (d.hostBpm.load() - 100.0) < 2.0, "tempo follow: BPM em uso", d.hostBpm.load(), 100.0);
+        }
+        // fonte: voz (vibrato), bateria (ruído com ataques), baixo (55 Hz)
+        {
+            auto classify = [&] (const std::function<float (double)>& gen)
+            {
+                DelexProcessor d; d.setRateAndBufferSizeDetails (48000.0, 480); d.prepareToPlay (48000.0, 480);
+                feed (d, 6.0, gen);
+                return d.analyser.source.load();
+            };
+            std::mt19937 g (3); std::uniform_real_distribution<float> u (-1, 1);
+            const int voc = classify ([] (double t) {
+                const double f = 220.0 * std::pow (2.0, (0.35 * std::sin (2 * juce::MathConstants<double>::pi * 5.5 * t)) / 12.0);
+                static double ph = 0; ph += 2 * juce::MathConstants<double>::pi * f / 48000.0;
+                const double env = std::fmod (t, 1.5) < 1.2 ? 1.0 : 0.0;
+                return (float) (env * (0.3 * std::sin (ph) + 0.12 * std::sin (2 * ph) + 0.06 * std::sin (3 * ph))); });
+            const int drm = classify ([&] (double t) { const double ph = std::fmod (t, 0.25); return ph < 0.08 ? 0.6f * u (g) * (float) std::exp (-ph / 0.02) : 0.0f; });
+            const int bas = classify ([] (double t) { return 0.5f * (float) std::sin (2 * juce::MathConstants<double>::pi * 55.0 * t); });
+            check (voc == delex::InputAnalyser::Vocal, "fonte detectada: voz", voc, 0);
+            check (drm == delex::InputAnalyser::Drums, "fonte detectada: bateria", drm, 1);
+            check (bas == delex::InputAnalyser::Bass, "fonte detectada: baixo", bas, 2);
+        }
+        // Throw Map: com o DAW a tocar, só o passo 4 (2.º tempo) entra no delay
+        {
+            DelexProcessor d; d.setRateAndBufferSizeDetails (48000.0, 240); d.prepareToPlay (48000.0, 240);
+            TestPlayHead ph; d.setPlayHead (&ph);
+            setParam (d, delex::id::mix, 100.0f); setParam (d, delex::id::feedback, 0.0f);
+            setParam (d, delex::id::sync, 0.0f); setParam (d, delex::id::time, 100.0f);
+            setParam (d, delex::id::throw_only, 1.0f); setParam (d, delex::id::tmap_on, 1.0f); setParam (d, delex::id::tmap_bars, 0.0f);
+            d.setThrowMapStep (4, true);
+            d.updateTapsNow();
+            juce::AudioBuffer<float> b (2, 240); juce::MidiBuffer m; std::vector<float> out;
+            for (int k = 0; k < 300; ++k)
+            {
+                ph.ppq = k * 240 / 24000.0;   // 120 BPM: 24000 amostras por semínima
+                for (int i = 0; i < 240; ++i) { const float x = 0.3f * std::sin (0.07f * (float) (k * 240 + i)); b.setSample (0, i, x); b.setSample (1, i, x); }
+                d.processBlock (b, m);
+                for (int i = 0; i < 240; ++i) out.push_back (b.getSample (0, i));
+            }
+            double eIn = 0, eOut = 0;
+            for (int i = (int) (0.63 * 48000); i < (int) (0.70 * 48000); ++i) eIn += out[(size_t) i] * out[(size_t) i];
+            for (int i = (int) (0.80 * 48000); i < (int) (1.40 * 48000); ++i) eOut += out[(size_t) i] * out[(size_t) i];
+            check (eIn > 100.0 * (eOut + 1e-9) && eIn > 1.0, "throw map: eco só da semicolcheia marcada", eIn, 0.0);
+            d.setPlayHead (nullptr);
+        }
+        // pesquisa por descrição
+        {
+            delex::ui::PresetBrowser br (p);
+            br.setSearchText ("voz escura e larga");
+            const auto top = br.resultName (0);
+            int vocalsInTop5 = 0; bool topDarkWide = false;
+            for (int i = 0; i < 5; ++i)
+                for (auto& fp : delex::factoryPresets())
+                    if (juce::String::fromUTF8 (fp.name) == br.resultName (i))
+                    {
+                        if (juce::String (fp.category) == "Vocals") ++vocalsInTop5;
+                        if (i == 0) { const auto t = juce::String::fromUTF8 (fp.tags) + juce::String::fromUTF8 (fp.description); topDarkWide = t.contains ("escur") && t.contains ("larg"); }
+                    }
+            check (br.numResults() > 3 && topDarkWide && vocalsInTop5 >= 2, "pesquisa \"voz escura e larga\": escuro + largo no topo, vozes no top 5", vocalsInTop5, 2);
+            br.setSearchText ("short snare");
+            const auto top2 = br.resultName (0);
+            juce::String cat2;
+            for (auto& fp : delex::factoryPresets()) if (juce::String::fromUTF8 (fp.name) == top2) cat2 = juce::String::fromUTF8 (fp.category);
+            check (cat2 == "Drums" || cat2 == "NonLin", "pesquisa \"short snare\" → bateria", br.numResults(), 1);
+            std::printf ("    (\"voz escura e larga\" → %s · \"short snare\" → %s)\n", top.toRawUTF8(), top2.toRawUTF8());
+        }
+    }
+
     testControls (p);
 
     // matriz de parâmetros (documentação gerada a partir do código)
@@ -811,7 +972,7 @@ int main()
                    << " | " << curve << " | " << (r->isAutomatable() ? juce::String ("sim") : u8 ("não")) << " |\n";
             }
         juce::File (juce::File::getCurrentWorkingDirectory().getChildFile ("docs/PARAMETROS.md")).replaceWithText (md);
-        check (count == 104, "parametros documentados", count, 104);
+        check (count == 110, "parametros documentados", count, 110);
     }
 
     // 6) capturas da interface
@@ -829,11 +990,11 @@ int main()
             feedLive(); pump (200); feedLive();
             snapshot (*ed, "docs/ui_simple.png");
             check (clickButton (*ed, "ADVANCED"), "mudar para a vista ADVANCED");
-            const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "TAPS", "UTILITIES" };
+            const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "TAPS", "VOCAL", "LAB", "UTILITIES" };
             const char* files[] = { "docs/ui_adv_timing.png", "docs/ui_adv_space.png", "docs/ui_adv_feedback_eq.png",
                                     "docs/ui_adv_motion.png", "docs/ui_adv_texture.png", "docs/ui_adv_mod.png", "docs/ui_adv_perform.png",
-                                    "docs/ui_adv_taps.png", "docs/ui_adv_utilities.png" };
-            for (int i = 0; i < 9; ++i) { check (clickButton (*ed, tabs[i]), tabs[i]); feedLive(); snapshot (*ed, files[i]); }
+                                    "docs/ui_adv_taps.png", "docs/ui_adv_vocal.png", "docs/ui_adv_lab.png", "docs/ui_adv_utilities.png" };
+            for (int i = 0; i < 11; ++i) { check (clickButton (*ed, tabs[i]), tabs[i]); feedLive(); snapshot (*ed, files[i]); }
             clickButton (*ed, "SIMPLE");
         }
         // ecrã de senha

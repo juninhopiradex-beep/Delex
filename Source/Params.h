@@ -63,7 +63,9 @@ inline juce::String num (double v, int decimals)
     X(mm_rate) X(mm1_src) X(mm1_dst) X(mm1_amt) X(mm2_src) X(mm2_dst) X(mm2_amt) \
     X(mm3_src) X(mm3_dst) X(mm3_amt) X(mm4_src) X(mm4_dst) X(mm4_amt) \
     /* v1.0 — vaga C */ \
-    X(taps_mode) X(taps_level) X(taps_grid) X(taps_swing) X(harm_key) X(harm_scale)
+    X(taps_mode) X(taps_level) X(taps_grid) X(taps_swing) X(harm_key) X(harm_scale) \
+    /* v1.0 — vaga D */ \
+    X(guard) X(guard_amt) X(unmask) X(tempo_follow) X(tmap_on) X(tmap_bars)
 
 namespace id
 {
@@ -267,6 +269,14 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     addC (id::harm_key, "Harmony Key", { "Auto", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0);
     addC (id::harm_scale, "Harmony Scale", { "Auto", "Major", "Minor" }, 0);
 
+    // --- v1.0 (vaga D)
+    addB (id::guard, "Translation Guard", false);
+    addF (id::guard_amt, "Guard Strength", { 0.0f, 100.0f }, 50.0f, pct);
+    addF (id::unmask, "Spectral Unmask", { 0.0f, 100.0f }, 0.0f, pct);
+    addB (id::tempo_follow, "Tempo Follow", false);
+    addB (id::tmap_on, "Throw Map", false);
+    addC (id::tmap_bars, "Throw Map Length", { "1 bar", "2 bars", "4 bars", "8 bars" }, 2);
+
 
     return { p.begin(), p.end() };
 }
@@ -411,6 +421,8 @@ inline Params toEngine (const Values& v, double bpm, double sr)
     p.tapsMode = (TapsMode) juce::jlimit (0, 2, (int) std::lround (v.taps_mode));
     p.tapsLevel = v.taps_level * 0.01f;
     p.bpm = (float) juce::jlimit (20.0, 999.0, bpm);
+    p.guard = v.guard > 0.5f; p.guardStrength = v.guard_amt * 0.01f;
+    p.unmask = v.unmask * 0.01f;
 
     // --- macros
     const float s = juce::jlimit (0.0f, 1.0f, v.space * 0.01f);

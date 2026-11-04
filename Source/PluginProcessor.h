@@ -6,12 +6,13 @@
 #include "License.h"
 #include "Taps.h"
 #include "Analysis.h"
+#include "DelayMatch.h"
 
 class DelexProcessor : public juce::AudioProcessor, private juce::Timer
 {
 public:
     DelexProcessor();
-    ~DelexProcessor() override { stopTimer(); }
+    ~DelexProcessor() override { stopTimer(); matchPool.removeAllJobs (true, 10000); }
 
     // --- AudioProcessor
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -94,6 +95,21 @@ public:
     delex::taps::HarmonyInfo currentHarmony() const;
     void updateTapsNow() { timerCallback(); }     // usado pelos testes
 
+    // vaga D: Delay Match, Throw Map, medidores do guard/unmask
+    void startDelayMatch (const juce::File& f);
+    void applyDelayMatch();
+    delex::MatchResult getMatchResult() const { const juce::ScopedLock sl (matchLock); return matchResult; }
+    enum MatchState { MatchIdle = 0, MatchBusy = 1, MatchDone = 2, MatchFailed = 3 };
+    std::atomic<int> matchState { MatchIdle };
+    juce::String matchFileName;
+    bool throwMapStep (int step) const;
+    void setThrowMapStep (int step, bool on);
+    void clearThrowMap();
+    std::atomic<double> currentPpq { 0.0 };
+    std::atomic<bool> hostPlaying { false };
+    std::atomic<float> guardDb { 0 }, wetCorr { 1 }, unmaskDb[4] {};
+    double effectiveBpm() const { return hostBpm.load(); }
+
     // valores efectivos do último pedaço de áudio (depois de morph, pads e matriz) — para testes/medição
     delex::Values lastChunkValues {};
 
@@ -135,6 +151,13 @@ private:
     bool morphHave = false, morphHaveShared = false;
     std::array<bool, (size_t) delex::Values::count()> continuous {}, morphable {};
     void timerCallback() override;
+    // Delay Match em segundo plano
+    juce::ThreadPool matchPool { 1 };
+    juce::CriticalSection matchLock;
+    delex::MatchResult matchResult;
+    // Throw Map publicado (128 passos de 1/16)
+    std::array<std::atomic<uint32_t>, 4> tmapBits {};
+    juce::String tmapPublished;
     // taps: padrão publicado para a thread de áudio
     juce::SpinLock tapLock;
     delex::TapSet tapShared {}, tapPublished {};

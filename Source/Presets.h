@@ -404,7 +404,8 @@ inline juce::StringPairArray parsePresetData (const char* data)
 // Parâmetros de escuta/fluxo de trabalho que nenhum preset altera
 inline bool presetIgnores (const juce::String& pid)
 {
-    return pid == id::bypass || pid == id::monitor || pid == id::key_src || pid == id::throw_now;
+    return pid == id::bypass || pid == id::monitor || pid == id::key_src || pid == id::throw_now
+        || pid == id::tempo_follow || pid == id::tmap_on || pid == id::tmap_bars;
 }
 
 // Grupos que o utilizador pode bloquear ao trocar de preset (bit 0…3)

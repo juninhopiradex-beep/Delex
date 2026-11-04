@@ -2,11 +2,14 @@
 //  DELEX by Piradex — análise da entrada (fora da thread de áudio)
 //   · tom (cromagrama + perfis de Krumhansl-Kessler, 24 tonalidades)
 //   · afinação da nota actual (YIN) — para o Harmonic Echo seguir a melodia
+//   · tempo da entrada (envelope de ataques + autocorrelação) — Tempo Follow
+//   · tipo de fonte (voz, bateria, baixo, guitarra/teclas, pad, mistura) — estimativa
 //  A thread de áudio só escreve amostras reduzidas (≈12 kHz) num FIFO.
 // =============================================================================
 #pragma once
 
 #include <juce_dsp/juce_dsp.h>
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -30,6 +33,10 @@ public:
     {
         chroma.fill (0.0f); ring.fill (0.0f); ringPos = 0;
         key.store (-1); keyConfidence.store (0.0f); note.store (-1);
+        onsetEnv.fill (0.0f); onsetPos = 0; hopAcc = 0; hopN = 0; prevLogE = -100.0f;
+        followBpm.store (0.0f); bpmConfidence.store (0.0f); bpmCandidate = 0; bpmAgree = 0;
+        source.store (-1); sourceConfidence.store (0.0f);
+        fLow = fCent = fFlat = fPitched = fRate = fVib = 0; f0Hist.fill (0.0f); f0N = 0;
     }
 
     // thread de áudio: mono, sem alocações
@@ -60,6 +67,7 @@ public:
         newSamples += n1 + n2;
         if (newSamples < (int) (rate * 0.1)) return;     // ~10 análises por segundo
         newSamples = 0;
+        updateTempo();
 
         // janela mais recente, ordenada
         std::array<float, kWin> w {};
@@ -70,11 +78,30 @@ public:
 
         detectPitch (w);
         updateChroma (w);
+        updateSource();
     }
 
     std::atomic<int> key { -1 };            // 0…11 maior (C…B), 12…23 menor
     std::atomic<float> keyConfidence { 0 };
     std::atomic<int> note { -1 };           // nota MIDI actual (−1 = sem afinação clara)
+    std::atomic<float> followBpm { 0 };     // tempo seguido (0 = ainda sem certeza)
+    std::atomic<float> bpmConfidence { 0 };
+    enum Source { Vocal = 0, Drums, Bass, GuitarKeys, Pad, FullMix, kSources };
+    std::atomic<int> source { -1 };
+    std::atomic<float> sourceConfidence { 0 };
+
+    static juce::String sourceName (int s, bool pt)
+    {
+        static const char* p[kSources] = { "Voz", "Bateria / percussão", "Baixo / 808", "Guitarra / teclas", "Pad / sintetizador", "Mistura completa" };
+        static const char* e[kSources] = { "Vocal", "Drums / percussion", "Bass / 808", "Guitar / keys", "Pad / synth", "Full mix" };
+        return s < 0 ? juce::String ("-") : juce::String::fromUTF8 ((pt ? p : e)[s]);
+    }
+    // categoria de presets que combina com cada fonte
+    static const char* sourceCategory (int s)
+    {
+        static const char* c[kSources] = { "Vocals", "Drums", "Bass", "Guitar", "Synth", "Master FX" };
+        return s < 0 ? "" : c[s];
+    }
 
     static juce::String keyName (int k, bool portuguese)
     {
@@ -98,7 +125,84 @@ private:
         fifo.finishedWrite (n1 + n2);
         tmpN = 0;
     }
-    void addToRing (float x) { ring[(size_t) ringPos] = x; ringPos = (ringPos + 1) & (kWin - 1); }
+    void addToRing (float x)
+    {
+        ring[(size_t) ringPos] = x; ringPos = (ringPos + 1) & (kWin - 1);
+        // envelope de ataques: fluxo de energia em saltos de 10 ms
+        hopAcc += x * x;
+        if (++hopN >= (int) (rate * 0.01))
+        {
+            const float logE = 10.0f * std::log10 (hopAcc / (float) hopN + 1.0e-10f);
+            onsetEnv[(size_t) onsetPos] = std::max (0.0f, logE - prevLogE) * (logE > -55.0f ? 1.0f : 0.0f);
+            onsetPos = (onsetPos + 1) % kOnset;
+            prevLogE = logE; hopAcc = 0; hopN = 0;
+        }
+    }
+
+    // Tempo Follow: autocorrelação do envelope de ataques (6 s), 70–180 BPM, com peso no dobro do período
+    void updateTempo()
+    {
+        std::array<float, kOnset> o {};
+        float mean = 0;
+        for (int i = 0; i < kOnset; ++i) { o[(size_t) i] = onsetEnv[(size_t) ((onsetPos + i) % kOnset)]; mean += o[(size_t) i]; }
+        mean /= kOnset;
+        if (mean < 0.05f) return;                         // sem ataques suficientes
+        for (auto& x : o) x -= mean;
+        auto ac = [&] (int lag) { float r = 0; for (int i = lag; i < kOnset; ++i) r += o[(size_t) i] * o[(size_t) i - lag]; return r / (float) (kOnset - lag); };
+        float r0 = ac (0); if (r0 <= 0) return;
+        int best = -1; float bv = -1e9f; std::array<float, 200> sc {};
+        for (int L = 33; L <= 86; ++L)
+        {
+            sc[(size_t) L] = ac (L) + 0.5f * ac (2 * L) + 0.25f * ac (L / 2);
+            if (sc[(size_t) L] > bv) { bv = sc[(size_t) L]; best = L; }
+        }
+        if (best < 0) return;
+        float lag = (float) best;
+        if (best > 33 && best < 86)
+        {
+            const float a = sc[(size_t) best - 1], b = sc[(size_t) best], c = sc[(size_t) best + 1], den = a - 2 * b + c;
+            if (std::abs (den) > 1e-9f) lag += 0.5f * (a - c) / den;
+        }
+        const float bpm = 6000.0f / lag;
+        const float conf = juce::jlimit (0.0f, 1.0f, bv / r0);
+        if (bpmCandidate > 0 && std::abs (bpm - bpmCandidate) / bpmCandidate < 0.03f) ++bpmAgree; else { bpmAgree = 0; bpmCandidate = bpm; }
+        bpmCandidate = 0.7f * bpmCandidate + 0.3f * bpm;
+        if (bpmAgree >= 3 && conf > 0.15f) { followBpm.store (bpmCandidate); bpmConfidence.store (conf); }
+    }
+
+    // Tipo de fonte: regras simples sobre graves, brilho, ruído, afinação, vibrato e ataques
+    void updateSource()
+    {
+        // taxa de ataques nos últimos 4 s
+        int peaks = 0;
+        for (int i = 1; i < 400; ++i)
+        {
+            const float a = onsetEnv[(size_t) ((onsetPos - i + kOnset) % kOnset)], b = onsetEnv[(size_t) ((onsetPos - i - 1 + kOnset) % kOnset)];
+            if (a > 4.0f && b <= 4.0f) ++peaks;
+        }
+        const float rateHz = (float) peaks / 4.0f;
+        auto ema = [] (float& f, float v) { f += 0.12f * (v - f); };
+        ema (fLow, lastLow); ema (fCent, lastCent); ema (fFlat, lastFlat); ema (fPitched, note.load() >= 0 ? 1.0f : 0.0f); ema (fRate, rateHz);
+        // vibrato: desvio (cents) da afinação nos últimos ~1 s
+        if (f0N >= 6)
+        {
+            float m = 0; for (int i = 0; i < f0N; ++i) m += f0Hist[(size_t) i]; m /= (float) f0N;
+            float v = 0; for (int i = 0; i < f0N; ++i) v += (f0Hist[(size_t) i] - m) * (f0Hist[(size_t) i] - m);
+            ema (fVib, std::sqrt (v / (float) f0N) * 100.0f);
+        }
+        auto ramp = [] (float x, float a, float b) { return juce::jlimit (0.0f, 1.0f, (x - a) / (b - a)); };
+        float sc[kSources];
+        sc[Bass]       = ramp (fLow, 0.45f, 0.75f);
+        sc[Drums]      = ramp (fFlat, 0.12f, 0.35f) * (1.0f - fPitched) * ramp (fRate, 0.8f, 3.0f);
+        sc[Vocal]      = fPitched * ramp (fVib, 6.0f, 20.0f) * (1.0f - ramp (fLow, 0.3f, 0.6f)) * (1.0f - ramp (fCent, 3500.0f, 6000.0f));
+        sc[GuitarKeys] = fPitched * (1.0f - ramp (fVib, 6.0f, 20.0f)) * ramp (fRate, 0.4f, 1.2f) * (1.0f - ramp (fLow, 0.3f, 0.6f));
+        sc[Pad]        = ramp (fPitched, 0.3f, 0.8f) * (1.0f - ramp (fVib, 8.0f, 25.0f)) * (1.0f - ramp (fRate, 0.3f, 1.0f)) * (1.0f - ramp (fLow, 0.4f, 0.7f));
+        sc[FullMix]    = ramp (fRate, 1.0f, 3.0f) * ramp (fLow, 0.12f, 0.3f) * (1.0f - ramp (fLow, 0.55f, 0.75f)) * (1.0f - std::abs (fPitched - 0.5f) * 1.2f) * ramp (fFlat, 0.05f, 0.2f);
+        int best = 0; float sum = 0;
+        for (int i = 0; i < kSources; ++i) { sc[i] = std::max (0.0f, sc[i]); sum += sc[i]; if (sc[i] > sc[best]) best = i; }
+        if (sum < 0.05f) return;
+        source.store (best); sourceConfidence.store (sc[best] / sum);
+    }
 
     void updateChroma (const std::array<float, kWin>& w)
     {
@@ -106,6 +210,24 @@ private:
         for (int i = 0; i < kWin; ++i)
             buf[(size_t) i] = w[(size_t) i] * (0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (kWin - 1)));
         fft.performFrequencyOnlyForwardTransform (buf.data());
+        {
+            double tot = 0, low = 0, cent = 0, logSum = 0; int nb = 0;
+            for (int b = 1; b < kWin / 2; ++b)
+            {
+                const double f = b * rate / kWin, pw = (double) buf[(size_t) b] * buf[(size_t) b];
+                if (f < 30.0 || f > 5500.0) continue;
+                tot += pw; cent += pw * f; if (f < 180.0) low += pw;
+                if (f > 100.0) { logSum += std::log (pw + 1e-12); ++nb; }
+            }
+            if (tot > 0)
+            {
+                lastLow = (float) (low / tot); lastCent = (float) (cent / tot);
+                double am = 0; int n2 = 0;
+                for (int b = 1; b < kWin / 2; ++b) { const double f = b * rate / kWin; if (f > 100.0 && f <= 5500.0) { am += (double) buf[(size_t) b] * buf[(size_t) b]; ++n2; } }
+                am /= std::max (1, n2);
+                lastFlat = nb > 0 && am > 0 ? (float) (std::exp (logSum / nb) / am) : 0.0f;
+            }
+        }
         std::array<float, 12> c {};
         for (int b = 1; b < kWin / 2; ++b)
         {
@@ -168,7 +290,12 @@ private:
         const float den = a - 2 * b + c;
         const float tt = (float) t + (std::abs (den) > 1e-9f ? 0.5f * (a - c) / den : 0.0f);
         const double f = rate / tt;
-        note.store ((int) std::lround (69.0 + 12.0 * std::log2 (f / 440.0)));
+        const double midi = 69.0 + 12.0 * std::log2 (f / 440.0);
+        note.store ((int) std::lround (midi));
+        // histórico curto da afinação (para o vibrato); reinicia quando a nota muda muito
+        if (f0N > 0 && std::abs (midi - f0Hist[(size_t) (f0N - 1)]) > 0.8) f0N = 0;
+        if (f0N == (int) f0Hist.size()) { std::rotate (f0Hist.begin(), f0Hist.begin() + 1, f0Hist.end()); --f0N; }
+        f0Hist[(size_t) f0N++] = (float) midi;
     }
 
     int decim = 4; double rate = 12000.0;
@@ -179,5 +306,11 @@ private:
     std::array<float, kWin> ring {}; int ringPos = 0, newSamples = 0;
     std::array<float, 12> chroma {};
     juce::dsp::FFT fft { kOrder };
+    static constexpr int kOnset = 600;              // 6 s de envelope de ataques (10 ms)
+    std::array<float, kOnset> onsetEnv {}; int onsetPos = 0, hopN = 0;
+    float hopAcc = 0, prevLogE = -100.0f, bpmCandidate = 0; int bpmAgree = 0;
+    float lastLow = 0, lastCent = 0, lastFlat = 0;
+    float fLow = 0, fCent = 0, fFlat = 0, fPitched = 0, fRate = 0, fVib = 0;
+    std::array<float, 10> f0Hist {}; int f0N = 0;
 };
 } // namespace delex
