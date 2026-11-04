@@ -977,6 +977,150 @@ private:
     std::unique_ptr<APVTS::SliderAttachment> att;
 };
 
+// ---------------------------------------------------------------- editor de taps (Echo Sculpt / Multi-Tap)
+//  Colunas = repetições (Sculpt) ou passos da grelha (Multi). Faixas: NÍVEL, PAN, TOM, HARMONIA.
+//  Arrastar desenha; clique direito apaga (nível) ou repõe; em HARMONIA clicar muda o intervalo.
+class TapEditor : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    enum Lane { LLevel = 0, LPan, LTone, LHarm };
+    int lane = LLevel;
+
+    explicit TapEditor (DelexProcessor& p) : proc (p)
+    {
+        setTooltip (tr ("Desenha com o rato. Clique direito apaga o passo. Em HARMONIA, clique muda o intervalo (3.ª, 5.ª, oitava…).",
+                        "Draw with the mouse. Right-click clears the step. In HARMONY, click changes the interval (3rd, 5th, octave…)."));
+    }
+
+    void tick()
+    {
+        const auto v = proc.raw.load();
+        const int m = (int) std::lround (v.taps_mode), g = (int) std::lround (v.taps_grid);
+        const auto pat = taps::fromTree (proc.apvts.state.getChildWithName (taps::treeId()));
+        if (m != mode || g != grid || pat != shown) { mode = m; grid = g; shown = pat; repaint(); }
+    }
+
+    bool sculpt() const { return mode != 2; }
+    int  columns() const { return sculpt() ? taps::kSculptSteps : taps::kMultiSteps; }
+    const taps::Step& step (int i) const { return sculpt() ? shown.sculpt[(size_t) i] : shown.multi[(size_t) i]; }
+
+    void paint (juce::Graphics& g) override
+    {
+        using namespace juce;
+        auto r = getLocalBounds().toFloat();
+        g.setColour (col::deep); g.fillRoundedRectangle (r, 8.0f);
+        g.setColour (col::line); g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+        area = r.reduced (10.0f, 8.0f).withTrimmedBottom (18.0f);
+        const int n = columns();
+        const float w = area.getWidth() / (float) n;
+        const auto accent = lane == LLevel ? col::coral : lane == LPan ? col::cyan : lane == LTone ? col::gold : col::violet;
+        if (lane == LPan) { g.setColour (col::axis); g.drawHorizontalLine ((int) area.getCentreY(), area.getX(), area.getRight()); }
+        for (int i = 0; i < n; ++i)
+        {
+            auto c = Rectangle<float> (area.getX() + w * (float) i, area.getY(), w, area.getHeight()).reduced (w > 30 ? 4.0f : 1.5f, 0.0f);
+            const bool disabled = ! sculpt() && i == 0;
+            const bool beat = ! sculpt() && grid != 1 && (i % (grid == 2 ? 2 : 4)) == 0;
+            g.setColour (disabled ? col::bg : (beat ? col::panel2 : col::panel)); g.fillRoundedRectangle (c, 3.0f);
+            if (disabled) continue;
+            const auto& st = step (i);
+            const bool on = st.gain > 0.001f;
+            const auto colr = on ? accent : accent.withAlpha (0.25f);
+            g.setColour (colr);
+            switch (lane)
+            {
+                case LLevel: g.fillRoundedRectangle (c.withTop (c.getBottom() - c.getHeight() * st.gain), 3.0f); break;
+                case LTone:  if (on) g.fillRoundedRectangle (c.withTop (c.getBottom() - c.getHeight() * st.tone), 3.0f); break;
+                case LPan:
+                {
+                    if (! on) break;
+                    const float y0 = c.getCentreY(), y1 = y0 - st.pan * c.getHeight() * 0.5f;
+                    g.fillRect (Rectangle<float>::leftTopRightBottom (c.getX(), std::min (y0, y1), c.getRight(), std::max (y0, y1) + 1.0f));
+                } break;
+                default:
+                    if (on)
+                    {
+                        g.setFont (mono (w > 30 ? 13.0f : 10.0f));
+                        g.drawText (taps::intervalNames()[st.interval], c, Justification::centred);
+                    }
+                    break;
+            }
+        }
+        // números das colunas
+        g.setFont (mono (9.5f)); g.setColour (col::dim);
+        for (int i = 0; i < n; ++i)
+        {
+            String t;
+            if (sculpt()) t = String (i + 1);
+            else if (grid == 1) { if (i % 6 == 0) t = String (i / 6 + 1); }
+            else if (i % (grid == 2 ? 2 : 4) == 0) t = String (i / (grid == 2 ? 2 : 4) + 1);
+            if (t.isNotEmpty()) g.drawText (t, Rectangle<float> (area.getX() + w * (float) i, area.getBottom() + 2, w, 14), Justification::centred);
+        }
+        if (mode == 0)
+        {
+            g.setColour (col::bg.withAlpha (0.55f)); g.fillRoundedRectangle (r, 8.0f);
+            label (g, tr ("TAPS DESLIGADOS — escolhe ECHO SCULPT ou MULTI-TAP", "TAPS OFF — choose ECHO SCULPT or MULTI-TAP"), r, 13.0f, W::Semi, col::muted, Justification::centred, 0.1f);
+        }
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        proc.undo.beginNewTransaction();
+        lastCol = -1;
+        if (lane == LHarm) { const int c = colAt (e.position.x); if (c >= 0) cycleInterval (c, e.mods.isPopupMenu() ? -1 : 1); return; }
+        edit (e);
+    }
+    void mouseDrag (const juce::MouseEvent& e) override { if (lane != LHarm) edit (e); }
+
+    // usado também pelos testes
+    void setStepValue (int col, float value01, bool clear = false)
+    {
+        if (col < 0 || col >= columns() || (! sculpt() && col == 0)) return;
+        auto st = step (col);
+        if (clear) { if (lane == LLevel) st.gain = 0; else if (lane == LPan) st.pan = 0; else if (lane == LTone) st.tone = 1; }
+        else switch (lane)
+        {
+            case LLevel: st.gain = juce::jlimit (0.0f, 1.0f, value01); break;
+            case LPan:   st.pan = juce::jlimit (-1.0f, 1.0f, value01 * 2.0f - 1.0f); break;
+            case LTone:  st.tone = juce::jlimit (0.0f, 1.0f, value01); break;
+            default: break;
+        }
+        taps::setStep (proc.apvts.state, sculpt(), col, st, &proc.undo);
+        tick();
+    }
+    void cycleInterval (int col, int dir)
+    {
+        if (col < 0 || col >= columns() || (! sculpt() && col == 0)) return;
+        auto st = step (col);
+        st.interval = (st.interval + dir + taps::kNumIntervals) % taps::kNumIntervals;
+        if (st.gain < 0.001f) st.gain = 0.6f;
+        taps::setStep (proc.apvts.state, sculpt(), col, st, &proc.undo);
+        tick();
+    }
+
+private:
+    int colAt (float x) const
+    {
+        const int c = (int) std::floor ((x - area.getX()) / (area.getWidth() / (float) columns()));
+        return juce::isPositiveAndBelow (c, columns()) ? c : -1;
+    }
+    void edit (const juce::MouseEvent& e)
+    {
+        const int c = colAt (e.position.x);
+        if (c < 0) return;
+        const float v = juce::jlimit (0.0f, 1.0f, (area.getBottom() - e.position.y) / area.getHeight());
+        // arrastar entre colunas preenche as do meio
+        if (lastCol >= 0 && std::abs (c - lastCol) > 1)
+            for (int k = std::min (c, lastCol) + 1; k < std::max (c, lastCol); ++k) setStepValue (k, v, e.mods.isPopupMenu());
+        setStepValue (c, v, e.mods.isPopupMenu());
+        lastCol = c;
+    }
+
+    DelexProcessor& proc;
+    taps::Pattern shown = taps::defaultPattern();
+    int mode = -1, grid = 0, lastCol = -1;
+    juce::Rectangle<float> area;
+};
+
 // ---------------------------------------------------------------- barra de redução do ducker
 class GrBar : public juce::Component
 {

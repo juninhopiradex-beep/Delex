@@ -102,3 +102,9 @@ Gerada automaticamente a partir do código (tests/test_plugin.cpp). IDs estávei
 | `mm4_src` | Mod 4 Source | Off / LFO / Envelope / Random / Sidechain | Off | escolha | sim |
 | `mm4_dst` | Mod 4 Dest | Off / Time / Feedback / Mix / Rotation / Low Cut / High Cut / Peak Freq / Drive / Diffusion / Out Width / Pitch Mix / Reverse / Mod Depth / Wet Trim / Tone / Space | Off | escolha | sim |
 | `mm4_amt` | Mod 4 Amount | -100 … +100 | 0 | linear | sim |
+| `taps_mode` | Taps Mode | Off / Echo Sculpt / Multi-Tap | Off | escolha | sim |
+| `taps_level` | Taps Level | 0 % … 100 % | 80 % | linear | sim |
+| `taps_grid` | Taps Grid | 1/16 / 1/16T / 1/8 | 1/16 | escolha | sim |
+| `taps_swing` | Taps Swing | 0 % … 100 % | 0 % | linear | sim |
+| `harm_key` | Harmony Key | Auto / C / C# / D / D# / E / F / F# / G / G# / A / A# / B | Auto | escolha | sim |
+| `harm_scale` | Harmony Scale | Auto / Major / Minor | Auto | escolha | sim |

@@ -4,12 +4,14 @@
 #include "Params.h"
 #include "Presets.h"
 #include "License.h"
+#include "Taps.h"
+#include "Analysis.h"
 
-class DelexProcessor : public juce::AudioProcessor
+class DelexProcessor : public juce::AudioProcessor, private juce::Timer
 {
 public:
     DelexProcessor();
-    ~DelexProcessor() override = default;
+    ~DelexProcessor() override { stopTimer(); }
 
     // --- AudioProcessor
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -82,6 +84,16 @@ public:
 
     // morph A↔B: alvo = valores guardados no outro slot
     void refreshMorphTarget();
+    // taps / grooves / harmonia (vaga C)
+    delex::InputAnalyser analyser;
+    void applyGroove (int index);                 // grooves() → padrão Multi-Tap
+    void startGrooveCapture();                    // espera pelo primeiro som e grava 1 compasso
+    enum Capture { CapIdle = 0, CapArmed = 1, CapRecording = 2, CapDone = 3 };
+    std::atomic<int> captureState { CapIdle };
+    int lastCaptureTaps = -1;                     // taps criados pela última captura (−1 = nenhuma)
+    delex::taps::HarmonyInfo currentHarmony() const;
+    void updateTapsNow() { timerCallback(); }     // usado pelos testes
+
     // valores efectivos do último pedaço de áudio (depois de morph, pads e matriz) — para testes/medição
     delex::Values lastChunkValues {};
 
@@ -122,6 +134,17 @@ private:
     int morphSeen = -1;
     bool morphHave = false, morphHaveShared = false;
     std::array<bool, (size_t) delex::Values::count()> continuous {}, morphable {};
+    void timerCallback() override;
+    // taps: padrão publicado para a thread de áudio
+    juce::SpinLock tapLock;
+    delex::TapSet tapShared {}, tapPublished {};
+    std::atomic<int> tapVersion { 0 };
+    int tapSeen = -1;
+    // captura de groove (thread de áudio)
+    std::array<double, 32> capOnsets {};
+    std::atomic<int> capCount { 0 };
+    double capSamples = 0, capLastOnset = -1.0e9;
+    float capFast = 0, capSlow = 0;
     std::array<int, 32> modDestIdx {};
     static constexpr int kChunk = 32;
     std::array<std::atomic<int>, 128> ccMap {};

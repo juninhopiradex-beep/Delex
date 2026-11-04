@@ -51,6 +51,16 @@ enum class ModShape   { Sine = 0, Triangle = 1, Random = 2 };
 enum class CutSlope   { dB6 = 0, dB12 = 1, dB24 = 2 };
 enum class Monitor    { Normal = 0, WetSolo = 1, Delta = 2, Mono = 3, Phone = 4, Club = 5 };
 enum class Model      { Tape = 0, BBD = 1, MultiHead = 2, Cassette = 3, Digital80 = 4 };
+enum class TapsMode   { Off = 0, Sculpt = 1, Multi = 2 };
+
+// Um tap (Echo Sculpt ou Multi-Tap). pos: repetição n (Sculpt) ou posição em semínimas (Multi).
+struct Tap { float pos = 1, gain = 0, pan = 0, tone = 1, semis = 0; };
+struct TapSet
+{
+    static constexpr int kMax = 32;
+    std::array<Tap, kMax> taps {};
+    int count = 0;
+};
 
 // Ordem dos 5 módulos do loop: 0 Grit · 1 EQ · 2 Dispersão · 3 Difusão · 4 Fita.
 // As 4 primeiras permutações são as ordens das versões anteriores (compatibilidade).
@@ -143,6 +153,11 @@ struct Params
     Model model = Model::Tape;
     int   headsMask = 7;            // multi-cabeça: bits 0..2 = cabeças 1, 2, 3
     bool  padStop = false;          // tape stop (pad)
+
+    // --- v1.0 vaga C
+    TapsMode tapsMode = TapsMode::Off;
+    float tapsLevel = 1.0f;
+    float bpm = 120.0f;
 };
 
 // -----------------------------------------------------------------------------
@@ -423,6 +438,7 @@ public:
         for (auto& ch : diff) for (auto& s : ch) s.line.allocate (diffMax);
         for (auto& h : hist) h.allocate ((int) std::ceil (2.2 * sampleRate));
         for (auto& ps : pitchBuf) ps.allocate ((int) std::ceil (0.12 * sampleRate));
+        for (auto& t : tapDl) t.allocate ((int) std::ceil (kMaxDelaySeconds * sampleRate) + (int) (0.2 * sampleRate));
         reset();
     }
 
@@ -432,6 +448,8 @@ public:
         for (auto& ch : diff) for (auto& s : ch) s.line.clear();
         for (auto& h : hist) h.clear();
         for (auto& ps : pitchBuf) ps.clear();
+        for (auto& t : tapDl) t.clear();
+        for (auto& st : tapState) st = TapRun {};
         thrEnv = 0; thrAbove = false; thrCount = thrBelow = 0; throwPrev = false;
         pitchPh = 0; revPh[0] = revPh[1] = 0;
         stopSpeed = 1; stopExtra = 0; stopGain = 1; stopping = false;
@@ -466,6 +484,8 @@ public:
     }
 
     void setParams (const Params& p) noexcept { tgt = p; }
+    // padrão de taps (copiado; chamado na thread de áudio antes de process)
+    void setTaps (const TapSet& t) noexcept { taps = t; }
 
     // ------------------------------------------------------------ medição
     float duckReductionDb() const noexcept { return -duckGainDb; }   // ≥ 0
@@ -527,6 +547,7 @@ public:
             autoThrow (dryL, dryR, frz > 0.5f);
             const float sendS = sm.send.next (tgt.throwOnly && ! tgt.throwNow ? 0.0f : 1.0f);
             iL *= inGate * sendS;  iR *= inGate * sendS;
+            tapDl[0].push (iL); tapDl[1].push (iR);
 
             // --- leitura das linhas de atraso (com modulação)
             float modL = 0, modR = 0;
@@ -568,6 +589,17 @@ public:
 
             // --- wet: ducker, rotação/largura de saída
             float wL = yL, wR = yR;
+            {
+                const float sc = sm.sculpt.next (tgt.tapsMode == TapsMode::Sculpt ? 1.0f : 0.0f);
+                const float tw = sm.taps.next (tgt.tapsMode == TapsMode::Off ? 0.0f : tgt.tapsLevel);
+                wL *= 1.0f - sc; wR *= 1.0f - sc;                 // Echo Sculpt substitui os ecos do loop
+                if (tw > 1.0e-4f && taps.count > 0)
+                {
+                    float tL = 0, tR = 0;
+                    renderTaps (tL, tR);
+                    wL += tw * tL; wR += tw * tR;
+                }
+            }
             const float duckG = ducker (kL, kR) * gate (kL, kR);
             wL *= duckG; wR *= duckG;
             {
@@ -669,7 +701,7 @@ private:
     struct Smooth
     {
         OnePole fb, mix, freeze, bypass, wet, out, pre, inW, outW,
-                ma, mb, mc, md, ia, ib, ic, id, oa, ob, oc, od, balL, balR, pingpong, mono, makeup, loud, send;
+                ma, mb, mc, md, ia, ib, ic, id, oa, ob, oc, od, balL, balR, pingpong, mono, makeup, loud, send, sculpt, taps;
     } sm;
 
     // filtros smoothed a ritmo de controlo
@@ -740,6 +772,10 @@ private:
     // escuta
     SVF phoneHP[2], phoneLP[2], clubLP[2], clubLP2[2];
 
+    // vaga C
+    TapSet taps;
+    DelayLine tapDl[2];
+
     // vaga B
     DelayLine hist[2], pitchBuf[2];
     float thrEnv = 0; bool thrAbove = false, throwPrev = false; int thrCount = 0, thrBelow = 0, throws = 0;
@@ -782,6 +818,8 @@ private:
         snap (sm.makeup, makeup);
         snap (sm.loud, loudComp);
         snap (sm.send, tgt.throwOnly && ! tgt.throwNow ? 0.0f : 1.0f);
+        snap (sm.sculpt, tgt.tapsMode == TapsMode::Sculpt ? 1.0f : 0.0f);
+        snap (sm.taps, tgt.tapsMode == TapsMode::Off ? 0.0f : tgt.tapsLevel);
         for (int c = 0; c < 2; ++c)
         {
             const float t = targetDelay (c);   // já com as compensações (difusão, oversampling)
@@ -803,7 +841,7 @@ private:
         {
             for (auto* s : { &sm.fb, &sm.mix, &sm.freeze, &sm.wet, &sm.out, &sm.pre, &sm.inW, &sm.outW,
                              &sm.ma, &sm.mb, &sm.mc, &sm.md, &sm.ia, &sm.ib, &sm.ic, &sm.id,
-                             &sm.oa, &sm.ob, &sm.oc, &sm.od, &sm.balL, &sm.balR, &sm.pingpong, &sm.mono, &sm.makeup, &sm.loud })
+                             &sm.oa, &sm.ob, &sm.oc, &sm.od, &sm.balL, &sm.balR, &sm.pingpong, &sm.mono, &sm.makeup, &sm.loud, &sm.sculpt, &sm.taps })
                 s->setTime (25.0f, sr);
             sm.send.setTime (4.0f, sr);
             sm.bypass.setTime (15.0f, sr);
@@ -928,6 +966,9 @@ private:
         bitsStep = bits >= 23.5f ? 0.0f : 2.0f / std::pow (2.0f, bits);
         for (int c = 0; c < 2; ++c) gritAA[c].setLowpass (std::min (0.45f * rate, 0.45f * sr), 0.70710678f, sr);
         gritActive = (bitsStep > 0.0f || gritInc < 0.999f) && gritW > 0.001f;
+
+        // --- vaga C: taps (tempo, pan, tom e afinação de cada um)
+        updateTaps();
 
         // --- vaga B: pitch, reverse, modelos
         {
@@ -1136,6 +1177,59 @@ private:
             }
         }
         return x;
+    }
+
+    // ---------------------------------------------------------------- vaga C: taps
+    struct TapRun { float d = 0, dTarget = 0, gl = 0, gr = 0, lpG = 1, ratio = 1, ph = 0, z[2] {}; bool pitched = false; };
+    std::array<TapRun, TapSet::kMax> tapState {};
+
+    void updateTaps() noexcept
+    {
+        const float cap = (float) tapDl[0].capacity() - 8.0f;
+        const float qMs = 60000.0f / std::max (20.0f, tgt.bpm);
+        for (int k = 0; k < taps.count; ++k)
+        {
+            const auto& t = taps.taps[(size_t) k];
+            auto& r = tapState[(size_t) k];
+            const float ms = tgt.tapsMode == TapsMode::Sculpt ? t.pos * tgt.timeMsL : t.pos * qMs;
+            r.dTarget = clampf (msToSamples (ms), 4.0f, cap);
+            if (r.d <= 0.0f) r.d = r.dTarget;
+            const float a = (clampf (t.pan, -1.0f, 1.0f) + 1.0f) * 0.25f * kPi;
+            r.gl = t.gain * std::cos (a) * 1.41421356f;
+            r.gr = t.gain * std::sin (a) * 1.41421356f;
+            const float hz = 200.0f * std::pow (100.0f, clampf (t.tone, 0.0f, 1.0f));     // 200 Hz … 20 kHz
+            r.lpG = t.tone >= 0.999f ? 1.0f : 1.0f - std::exp (-kTwoPi * std::min (hz, 0.45f * sr) / sr);
+            r.ratio = std::pow (2.0f, clampf (t.semis, -24.0f, 24.0f) / 12.0f);
+            r.pitched = std::fabs (t.semis) > 0.01f;
+        }
+    }
+
+    void renderTaps (float& outL, float& outR) noexcept
+    {
+        const float W = 0.06f * sr;                          // grão do harmonizador
+        for (int k = 0; k < taps.count; ++k)
+        {
+            auto& r = tapState[(size_t) k];
+            if (r.gl + r.gr < 1.0e-5f) continue;
+            r.d += (r.dTarget - r.d) * 0.002f;                // muda de tempo sem cliques (≈10 ms)
+            float l, rr;
+            if (! r.pitched) { l = tapDl[0].readHermite (r.d); rr = tapDl[1].readHermite (r.d); }
+            else
+            {
+                // harmonia: dois grãos que lêem à volta do tempo do tap com outra velocidade
+                r.ph += (1.0f - r.ratio) / W; r.ph -= std::floor (r.ph);
+                l = rr = 0;
+                for (int g = 0; g < 2; ++g)
+                {
+                    float p = r.ph + 0.5f * (float) g; if (p >= 1.0f) p -= 1.0f;
+                    const float w = std::sin (kPi * p), w2 = w * w;
+                    const float dd = std::max (4.0f, r.d + (p - 0.5f) * W);   // centrado no tempo do tap
+                    l += w2 * tapDl[0].readHermite (dd); rr += w2 * tapDl[1].readHermite (dd);
+                }
+            }
+            if (r.lpG < 1.0f) { r.z[0] += r.lpG * (l - r.z[0]); r.z[1] += r.lpG * (rr - r.z[1]); l = r.z[0]; rr = r.z[1]; }
+            outL += r.gl * l; outR += r.gr * rr;
+        }
     }
 
     // ---------------------------------------------------------------- vaga B

@@ -398,7 +398,7 @@ private:
         addAndMakeVisible (advView);
         advView.addAndMakeVisible (echoC);
         advView.addAndMakeVisible (phaseC);
-        const juce::StringArray names { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "UTILITIES" };
+        const juce::StringArray names { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "TAPS", "UTILITIES" };
         for (int i = 0; i < names.size(); ++i)
         {
             auto* b = tabs.add (new juce::TextButton (names[i]));
@@ -419,7 +419,8 @@ private:
         buildTexture (*pages[4]);
         buildMod (*pages[5]);
         buildPerform (*pages[6]);
-        buildUtilities (*pages[7]);
+        buildTaps (*pages[7]);
+        buildUtilities (*pages[8]);
     }
 
     using K = Knob::Size;
@@ -797,6 +798,109 @@ private:
     int lastThrows = 0;
     juce::uint32 throwFlashUntil = 0;
 
+    // ------------------------------------------------------------------ TAPS: Echo Sculpt, Multi-Tap, grooves, harmonia
+    void buildTaps (Page& p)
+    {
+        auto& mode = p.add (std::make_unique<Segmented> (s, id::taps_mode, juce::StringArray { "OFF", "ECHO SCULPT", "MULTI-TAP" }, col::coral,
+                            tr ("Echo Sculpt: desenha cada repetição (substitui os ecos do loop) · Multi-Tap: ecos em posições livres da grelha, somados aos do loop",
+                                "Echo Sculpt: draw each repeat (replaces the loop echoes) · Multi-Tap: echoes at free grid positions, added to the loop echoes")));
+        auto& ed = p.add (std::make_unique<TapEditor> (proc));
+        tapEditor = &ed;
+        const juce::StringArray laneNames { tr ("NÍVEL", "LEVEL"), "PAN", tr ("TOM", "TONE"), tr ("HARMONIA", "HARMONY") };
+        for (int i = 0; i < 4; ++i)
+        {
+            auto* b = laneBtns.add (new juce::TextButton (laneNames[i]));
+            b->setColour (juce::TextButton::buttonOnColourId, i == 0 ? col::coral : i == 1 ? col::cyan : i == 2 ? col::gold : col::violet);
+            b->getProperties().set ("fontH", 11.0f);
+            b->getProperties().set ("radius", 0.0f);
+            b->setTooltip (tr ("O que as barras editam", "What the bars edit"));
+            b->onClick = [this, i] { tapEditor->lane = i; for (int k = 0; k < laneBtns.size(); ++k) laneBtns[k]->setToggleState (k == i, juce::dontSendNotification); tapEditor->repaint(); };
+            p.addAndMakeVisible (b);
+        }
+        laneBtns[0]->setToggleState (true, juce::dontSendNotification);
+        auto& lvl = p.add (knob (s, id::taps_level, "LEVEL", "", col::coral, K::Small, false, tr ("Volume dos taps", "Taps level")));
+        auto& sw = p.add (knob (s, id::taps_swing, "SWING", "", col::coral, K::Small, false, tr ("Atrasa as semicolcheias fracas (Multi-Tap, grelha 1/16)", "Delays the weak sixteenths (Multi-Tap, 1/16 grid)")));
+        auto& grid = p.add (std::make_unique<ChoiceBox> (s, id::taps_grid, tr ("Grelha do Multi-Tap: semicolcheias, tercinas de semicolcheia ou colcheias", "Multi-Tap grid: sixteenths, sixteenth triplets or eighths"),
+                            juce::StringArray { tr ("GRELHA 1/16", "GRID 1/16"), tr ("GRELHA 1/16T", "GRID 1/16T"), tr ("GRELHA 1/8", "GRID 1/8") }));
+        auto& clear = p.add (std::make_unique<juce::TextButton> (tr ("LIMPAR", "CLEAR")));
+        clear.setTooltip (tr ("Apaga todos os passos do modo actual", "Clears every step of the current mode"));
+        clear.onClick = [this]
+        {
+            proc.undo.beginNewTransaction();
+            const bool sc = std::lround (proc.raw.load().taps_mode) != 2;
+            for (int i = 0; i < (sc ? taps::kSculptSteps : taps::kMultiSteps); ++i) taps::setStep (proc.apvts.state, sc, i, {}, &proc.undo);
+        };
+
+        // grooves
+        auto& gbox = p.add (std::make_unique<juce::ComboBox>());
+        gbox.setTextWhenNothingSelected (tr ("Escolher groove…", "Choose groove…"));
+        const auto& gl = taps::grooves();
+        for (int i = 0; i < (int) gl.size(); ++i) gbox.addItem (juce::String::fromUTF8 (gl[(size_t) i].name), i + 1);
+        gbox.setTooltip (tr ("Padrões de Multi-Tap inspirados em ritmos africanos e da diáspora", "Multi-Tap patterns inspired by African and diaspora rhythms"));
+        gbox.onChange = [this, &gbox] { const int i = gbox.getSelectedItemIndex(); if (i >= 0) { proc.applyGroove (i); grooveSel = i; } };
+        auto& cap = p.add (std::make_unique<juce::TextButton> (tr ("CAPTURAR GROOVE", "CAPTURE GROOVE")));
+        cap.setColour (juce::TextButton::buttonOnColourId, col::coral);
+        cap.setTooltip (tr ("Toca um compasso (bateria, percussão, voz…): o DELEX ouve os ataques e transforma-os em taps", "Play one bar (drums, percussion, vocal…): DELEX listens to the hits and turns them into taps"));
+        cap.onClick = [this] { proc.startGrooveCapture(); };
+
+        // harmonia
+        auto& hk = p.add (std::make_unique<ChoiceBox> (s, id::harm_key, tr ("Tom para a harmonia (Auto = detectado na entrada)", "Key for the harmony (Auto = detected from the input)"),
+                          juce::StringArray { tr ("TOM: AUTO", "KEY: AUTO"), "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }));
+        auto& hs = p.add (std::make_unique<ChoiceBox> (s, id::harm_scale, tr ("Escala para a harmonia", "Scale for the harmony"),
+                          juce::StringArray { tr ("ESCALA: AUTO", "SCALE: AUTO"), tr ("MAIOR", "MAJOR"), tr ("MENOR", "MINOR") }));
+
+        p.extraPaint = [this, &p] (juce::Graphics& g)
+        {
+            // groove: descrição
+            auto gr = p.sections[1].r.toFloat().reduced (12.0f).withTrimmedTop (104.0f);
+            g.setColour (col::muted); g.setFont (font (12.0f));
+            String status;
+            switch (proc.captureState.load())
+            {
+                case DelexProcessor::CapArmed:     status = tr ("À espera do primeiro som…", "Waiting for the first sound…"); break;
+                case DelexProcessor::CapRecording: status = tr ("A gravar 1 compasso…", "Recording 1 bar…"); break;
+                default:
+                    if (proc.lastCaptureTaps == 0) status = tr ("Nada captado: toca mais forte ou mais ataques.", "Nothing captured: play louder or more hits.");
+                    else if (proc.lastCaptureTaps > 0) status = String (proc.lastCaptureTaps) + tr (" taps captados.", " taps captured.");
+                    else if (grooveSel >= 0) { const auto& gg = taps::grooves()[(size_t) grooveSel]; status = tr (gg.descPt, gg.descEn); }
+                    break;
+            }
+            g.setColour (proc.captureState.load() != DelexProcessor::CapIdle ? col::coral : col::muted);
+            g.drawFittedText (status, gr.toNearestInt(), juce::Justification::topLeft, 4, 1.0f);
+
+            // harmonia: tom e nota detectados
+            auto hr = p.sections[2].r.toFloat().reduced (12.0f).withTrimmedTop (100.0f);
+            const int k = proc.analyser.key.load();
+            const float conf = proc.analyser.keyConfidence.load();
+            label (g, tr ("TOM DETECTADO", "DETECTED KEY"), hr.removeFromTop (14.0f), 10.5f, W::Semi, col::dim, juce::Justification::centredLeft, 0.16f);
+            label (g, k < 0 ? u8 ("—") : InputAnalyser::keyName (k, piradex::i18n::isPortuguese()) + "  " + num (conf * 100.0f, 0) + " %",
+                   hr.removeFromTop (22.0f), 15.0f, W::Bold, col::violet, juce::Justification::centredLeft, 0.02f);
+            const int nt = proc.analyser.note.load();
+            static const char* nn[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+            g.setColour (col::muted); g.setFont (mono (11.5f));
+            g.drawText (tr ("NOTA: ", "NOTE: ") + (nt < 0 ? u8 ("—") : String (nn[nt % 12]) + String (nt / 12 - 1)), hr.removeFromTop (18.0f), juce::Justification::centredLeft);
+        };
+        p.layout = [this, &p, &mode, &ed, &lvl, &sw, &grid, &clear, &gbox, &cap, &hk, &hs]
+        {
+            p.sections = { { { 0, 0, 700, 392 }, "TAPS" }, { { 712, 0, 252, 186 }, "GROOVES" }, { { 712, 198, 252, 194 }, tr ("HARMONIC ECHO", "HARMONIC ECHO") } };
+            mode.setBounds (60, 4, 300, 26);
+            int x = 372;
+            for (auto* b : laneBtns) { b->setBounds (x, 4, 80, 26); x += 80; }
+            ed.setBounds (10, 38, 680, 246);
+            lvl.setBounds (10, 288, 100, 102);
+            sw.setBounds (110, 288, 100, 102);
+            grid.setBounds (230, 326, 140, 28);
+            clear.setBounds (384, 326, 90, 28);
+            gbox.setBounds (724, 32, 228, 28);
+            cap.setBounds (724, 68, 228, 28);
+            hk.setBounds (724, 230, 110, 28);
+            hs.setBounds (842, 230, 110, 28);
+        };
+    }
+    TapEditor* tapEditor = nullptr;
+    juce::OwnedArray<juce::TextButton> laneBtns;
+    int grooveSel = -1;
+
     void buildUtilities (Page& p)
     {
         auto& on = p.add (std::make_unique<ToggleChip> (s, id::duck, "DUCK", col::coral, tr ("Liga o ducker", "Turns the ducker on")));
@@ -973,6 +1077,7 @@ private:
             if (eq != nullptr && pages[2]->isVisible()) eq->tick();
             if (pages[5]->isVisible()) for (auto* m : srcMeters) m->tick();
             if (pages[6]->isVisible()) { for (auto* pb : pads) pb->tick(); pages[6]->repaint (430, 4, 90, 26); }
+            if (tapEditor != nullptr && pages[7]->isVisible()) { tapEditor->tick(); if (slowTick % 3 == 0) pages[7]->repaint (712, 0, 252, 392); }
             if (textureHeads != nullptr) textureHeads->setVisible (std::lround (v.model) == 2);
             if (++slowTick % 6 == 0) pages[currentTab]->repaint();   // textos dinâmicos (ordem, limitador, matriz)
         }

@@ -561,6 +561,44 @@ int main()
         std::printf ("[ok] fuzz vaga B (throw, pitch, reverse, modelos, stop, stretch): pico %.2f\n", worst);
     }
 
+    // ===================================================================== vaga C
+    // C1) Echo Sculpt: cada repetição com o nível desenhado; os ecos do loop desaparecem
+    {
+        Params p = wetOnly(); p.timeMsL = p.timeMsR = 200; p.feedback = 0.5f; p.tapsMode = TapsMode::Sculpt; p.tapsLevel = 1;
+        Run r (p);
+        TapSet t; t.count = 2; t.taps[0] = { 1, 1.0f, 0, 1, 0 }; t.taps[1] = { 3, 0.5f, 0, 1, 0 };
+        r.e.setTaps (t);
+        r.go (48000, [] (int i, float& l, float& rr) { l = rr = i == 0 ? 1.0f : 0.0f; });
+        const float a = peakAbs (r.L, 9400, 9800), b = peakAbs (r.L, 19000, 19400), c = peakAbs (r.L, 28600, 29000);
+        CHECK (a > 0.8f && b < 0.02f && c > 0.4f && c < 0.6f, "sculpt: repetições %f %f %f", a, b, c);
+        std::printf ("[ok] echo sculpt: rep. 1 = %.2f · rep. 2 (apagada) = %.3f · rep. 3 = %.2f\n", a, b, c);
+    }
+    // C2) Multi-Tap: taps em semínimas seguem o BPM; pan à esquerda
+    {
+        Params p = wetOnly(); p.timeMsL = p.timeMsR = 300; p.tapsMode = TapsMode::Multi; p.tapsLevel = 1; p.bpm = 120;
+        p.mix = 0.5f; p.equalPower = false;
+        Run r (p);
+        TapSet t; t.count = 2; t.taps[0] = { 0.75f, 1.0f, -1.0f, 1, 0 }; t.taps[1] = { 1.5f, 0.8f, 0.0f, 1, 0 };
+        r.e.setTaps (t);
+        r.go (48000, [] (int i, float& l, float& rr) { l = rr = i == 0 ? 1.0f : 0.0f; });
+        const int pa = argmaxAbs (r.L, 17000, 19000), pb = argmaxAbs (r.L, 35000, 37000);
+        const float rightAtA = std::fabs (r.R[(size_t) pa]);
+        CHECK (std::abs (pa - 18000) < 30 && std::abs (pb - 36000) < 30, "multi-tap em %d e %d (esperado 18000/36000)", pa, pb);
+        CHECK (rightAtA < 0.01f, "pan à esquerda deixou %f à direita", rightAtA);
+        std::printf ("[ok] multi-tap a 120 BPM: 3/16 → %d ms, 3/8 → %d ms; pan total à esquerda\n", pa / 48, pb / 48);
+    }
+    // C3) Harmonic Echo: tap com +7 semitons (5.ª)
+    {
+        Params p = wetOnly(); p.tapsMode = TapsMode::Sculpt; p.tapsLevel = 1; p.timeMsL = p.timeMsR = 500;   // sculpt: só o tap soa
+        Run r (p);
+        TapSet t; t.count = 1; t.taps[0] = { 1.0f, 1.0f, 0, 1, 7 };
+        r.e.setTaps (t);
+        r.go (72000, [] (int i, float& l, float& rr) { l = rr = 0.4f * std::sin (2.0f * 3.14159265f * 440.0f * (float) i / 48000.0f); });
+        const double f = zcFreq (r.L, 48000, 72000);
+        CHECK (std::fabs (f - 659.3) < 15.0, "harmonia +7: %f Hz em vez de 659", f);
+        std::printf ("[ok] harmonic echo: 440 Hz → %.0f Hz (5.ª acima)\n", f);
+    }
+
     // 14) Custo de CPU com todos os módulos activos
     {
         Params p; p.feedback = 0.7f; p.modDepthCents = 20; p.wow = 0.5f; p.diffAmount = 0.6f; p.dispSpreadMs = 15;

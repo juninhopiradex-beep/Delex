@@ -250,10 +250,10 @@ static void testControls (DelexProcessor& p)
     auto& ui = *ed;
     // vistas e abas
     check (press (ui, "ADVANCED") && p.advancedView, "ADVANCED abre a vista avançada");
-    const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "UTILITIES" };
+    const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "TAPS", "UTILITIES" };
     int tabOk = 0;
-    for (int i = 0; i < 8; ++i) if (press (ui, tabs[i]) && p.advancedTab == i) ++tabOk;
-    check (tabOk == 8, "8 abas abrem a página certa", tabOk, 8);
+    for (int i = 0; i < 9; ++i) if (press (ui, tabs[i]) && p.advancedTab == i) ++tabOk;
+    check (tabOk == 9, "9 abas abrem a página certa", tabOk, 9);
     check (press (ui, "SIMPLE") && ! p.advancedView, "SIMPLE volta à vista simples");
 
     // estilos
@@ -711,6 +711,84 @@ int main()
         check (std::abs (d.modSourceView[0].load()) <= 1.0f, "fonte LFO da matriz a correr", d.modSourceView[0].load(), 0.0);
     }
 
+    // 8) vaga C: tom, nota, harmonia, grooves, captura, taps no estado
+    std::printf ("Vaga C (taps, grooves, harmonia, tom)\n");
+    {
+        auto feed = [] (DelexProcessor& d, double seconds, const std::function<float (double)>& gen)
+        {
+            const int bs = 480; juce::AudioBuffer<float> b (2, bs); juce::MidiBuffer m;
+            const int blocks = (int) (seconds * 48000.0 / bs);
+            for (int k = 0; k < blocks; ++k)
+            {
+                for (int i = 0; i < bs; ++i) { const float x = gen ((k * bs + i) / 48000.0); b.setSample (0, i, x); b.setSample (1, i, x); }
+                d.processBlock (b, m);
+                if (k % 10 == 0) d.updateTapsNow();
+            }
+            return b;
+        };
+        auto tone = [] (double t, std::initializer_list<double> f)
+        {
+            float x = 0; for (double hz : f) { x += 0.15f * (float) std::sin (2 * juce::MathConstants<double>::pi * hz * t); x += 0.05f * (float) std::sin (4 * juce::MathConstants<double>::pi * hz * t); }
+            return x;
+        };
+        {
+            DelexProcessor d; d.setRateAndBufferSizeDetails (48000.0, 480); d.prepareToPlay (48000.0, 480);
+            // I–IV–V–I em Dó maior
+            feed (d, 8.0, [&] (double t) { const int c = (int) (t / 1.0) % 4;
+                return c == 0 || c == 3 ? tone (t, { 261.63, 329.63, 392.0 }) : c == 1 ? tone (t, { 349.23, 440.0, 523.25 }) : tone (t, { 392.0, 493.88, 587.33 }); });
+            check (d.analyser.key.load() == 0, "tom detectado: Dó maior", d.analyser.key.load(), 0);
+        }
+        {
+            DelexProcessor d; d.setRateAndBufferSizeDetails (48000.0, 480); d.prepareToPlay (48000.0, 480);
+            // i–iv–V–i em Lá menor
+            feed (d, 8.0, [&] (double t) { const int c = (int) (t / 1.0) % 4;
+                return c == 0 || c == 3 ? tone (t, { 220.0, 261.63, 329.63 }) : c == 1 ? tone (t, { 293.66, 349.23, 440.0 }) : tone (t, { 329.63, 415.30, 493.88 }); });
+            check (d.analyser.key.load() == 21, "tom detectado: Lá menor", d.analyser.key.load(), 21);
+            feed (d, 1.0, [] (double t) { return 0.4f * (float) std::sin (2 * juce::MathConstants<double>::pi * 220.0 * t); });
+            check (d.analyser.note.load() == 57, "nota detectada: A3 (220 Hz)", d.analyser.note.load(), 57);
+        }
+        // intervalos diatónicos
+        namespace T = delex::taps;
+        check (T::intervalSemis (T::Third, 0, false, 64) == 3.0f && T::intervalSemis (T::Third, 0, false, 60) == 4.0f
+               && T::intervalSemis (T::Third, 9, true, 57) == 3.0f && T::intervalSemis (T::Fifth, 0, false, 71) == 6.0f,
+               "harmonia diatónica (3.ª de Mi em Dó = 3, de Dó = 4; 5.ª de Si = 6)");
+
+        // groove aplicado → ecos nos passos certos (120 BPM: passo 3 = 375 ms)
+        DelexProcessor d; d.setRateAndBufferSizeDetails (48000.0, 480); d.prepareToPlay (48000.0, 480);
+        setParam (d, delex::id::mix, 100.0f); setParam (d, delex::id::feedback, 0.0f); setParam (d, delex::id::taps_level, 100.0f);
+        d.applyGroove (6);   // Afrobeats 3-3-2
+        d.updateTapsNow();
+        check (std::lround (plain (d, delex::id::taps_mode)) == 2, "groove liga o Multi-Tap");
+        {
+            juce::AudioBuffer<float> b (2, 480); juce::MidiBuffer m; std::vector<float> out;
+            for (int k = 0; k < 100; ++k) { b.clear(); if (k == 0) { b.setSample (0, 0, 1.0f); b.setSample (1, 0, 1.0f); } d.processBlock (b, m); for (int i = 0; i < 480; ++i) out.push_back (b.getSample (0, i)); }
+            auto peakNear = [&] (int centre) { float mx = 0; for (int i = centre - 200; i < centre + 200; ++i) mx = juce::jmax (mx, std::abs (out[(size_t) i])); return mx; };
+            check (peakNear (18000) > 0.3f && peakNear (36000) > 0.25f && peakNear (27000) < 0.05f, "3-3-2: ecos a 375 e 750 ms, nada a 562 ms", peakNear (18000), 0.75);
+        }
+        // captura de groove: ataques a 0, 250, 375 e 750 ms (120 BPM) → passos 2, 3 e 6
+        setParam (d, delex::id::taps_grid, 0.0f);
+        d.startGrooveCapture();
+        feed (d, 2.6, [] (double t) { for (double h : { 0.3, 0.55, 0.675, 1.05 }) if (t >= h && t < h + 0.03) return 0.8f * (float) std::sin (2 * juce::MathConstants<double>::pi * 180.0 * (t - h)) * (float) std::exp (-(t - h) / 0.01); return 0.0f; });
+        d.updateTapsNow();
+        const auto pat = T::fromTree (d.apvts.state.getChildWithName (T::treeId()));
+        check (d.lastCaptureTaps == 3 && pat.multi[2].gain > 0 && pat.multi[3].gain > 0 && pat.multi[6].gain > 0 && pat.multi[8].gain == 0.0f,
+               "captura de groove: 3 taps nos passos 2, 3 e 6", d.lastCaptureTaps, 3);
+
+        // taps no estado (sessão e A/B)
+        {
+            juce::MemoryBlock st; d.getStateInformation (st);
+            DelexProcessor q; q.setStateInformation (st.getData(), (int) st.getSize());
+            const auto pq = T::fromTree (q.apvts.state.getChildWithName (T::treeId()));
+            check (pq == pat, "padrão de taps guardado na sessão");
+            T::setStep (d.apvts.state, false, 5, { 0.9f, 0, 1, 0 }, nullptr);
+            d.selectSlot (1);
+            T::setStep (d.apvts.state, false, 5, { 0.1f, 0, 1, 0 }, nullptr);
+            d.selectSlot (0);
+            const float a = T::fromTree (d.apvts.state.getChildWithName (T::treeId())).multi[5].gain;
+            check (std::abs (a - 0.9f) < 1e-4f, "A/B guarda padrões de taps diferentes", a, 0.9);
+        }
+    }
+
     testControls (p);
 
     // matriz de parâmetros (documentação gerada a partir do código)
@@ -733,7 +811,7 @@ int main()
                    << " | " << curve << " | " << (r->isAutomatable() ? juce::String ("sim") : u8 ("não")) << " |\n";
             }
         juce::File (juce::File::getCurrentWorkingDirectory().getChildFile ("docs/PARAMETROS.md")).replaceWithText (md);
-        check (count == 98, "parametros documentados", count, 98);
+        check (count == 104, "parametros documentados", count, 104);
     }
 
     // 6) capturas da interface
@@ -751,10 +829,11 @@ int main()
             feedLive(); pump (200); feedLive();
             snapshot (*ed, "docs/ui_simple.png");
             check (clickButton (*ed, "ADVANCED"), "mudar para a vista ADVANCED");
-            const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "UTILITIES" };
+            const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "TAPS", "UTILITIES" };
             const char* files[] = { "docs/ui_adv_timing.png", "docs/ui_adv_space.png", "docs/ui_adv_feedback_eq.png",
-                                    "docs/ui_adv_motion.png", "docs/ui_adv_texture.png", "docs/ui_adv_mod.png", "docs/ui_adv_perform.png", "docs/ui_adv_utilities.png" };
-            for (int i = 0; i < 8; ++i) { check (clickButton (*ed, tabs[i]), tabs[i]); feedLive(); snapshot (*ed, files[i]); }
+                                    "docs/ui_adv_motion.png", "docs/ui_adv_texture.png", "docs/ui_adv_mod.png", "docs/ui_adv_perform.png",
+                                    "docs/ui_adv_taps.png", "docs/ui_adv_utilities.png" };
+            for (int i = 0; i < 9; ++i) { check (clickButton (*ed, tabs[i]), tabs[i]); feedLive(); snapshot (*ed, files[i]); }
             clickButton (*ed, "SIMPLE");
         }
         // ecrã de senha

@@ -29,6 +29,8 @@ DelexProcessor::DelexProcessor()
     for (size_t q = 0; q < modDestinations().size() && q < modDestIdx.size(); ++q)
         if (modDestinations()[q].pid != nullptr) modDestIdx[q] = RawParams::indexOf (modDestinations()[q].pid);
     lic::License::get();   // carrega o estado da licença na thread de mensagens
+    delex::taps::ensureTree (apvts.state);
+    startTimerHz (10);
 }
 
 // ---------------------------------------------------------------------------- áudio
@@ -37,6 +39,8 @@ void DelexProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     currentSampleRate = sampleRate;
     (void) divisions(); (void) modDivisions();   // tabelas estáticas criadas fora da thread de áudio
     engine.prepare (sampleRate, samplesPerBlock);
+    analyser.prepare (sampleRate);
+    tapSeen = -1;
     work.setSize (4, juce::jmax (1, samplesPerBlock), false, true, false);
     scopeFifo.reset();
 }
@@ -105,6 +109,79 @@ void DelexProcessor::setPad (int pad, bool down)
     int m = uiPads.load();
     if (down) m |= 1 << pad; else m &= ~(1 << pad);
     uiPads.store (m);
+}
+
+// ---------------------------------------------------------------------------- taps, grooves, harmonia
+delex::taps::HarmonyInfo DelexProcessor::currentHarmony() const
+{
+    const auto v = raw.load();
+    delex::taps::HarmonyInfo h;
+    const int detected = analyser.key.load();
+    const int keyChoice = (int) std::lround (v.harm_key), scaleChoice = (int) std::lround (v.harm_scale);
+    h.keyRoot = keyChoice > 0 ? keyChoice - 1 : (detected >= 0 ? detected % 12 : 0);
+    h.minor = scaleChoice == 2 || (scaleChoice == 0 && detected >= 12);
+    h.note = analyser.note.load();
+    return h;
+}
+
+void DelexProcessor::timerCallback()
+{
+    analyser.analyse();
+
+    // fim de uma captura de groove → padrão Multi-Tap
+    if (captureState.load() == CapDone)
+    {
+        std::vector<double> on;
+        for (int i = 0; i < capCount.load(); ++i) on.push_back (capOnsets[(size_t) i]);
+        const auto v = raw.load();
+        const auto steps = delex::taps::stepsFromOnsets (on, (int) std::lround (v.taps_grid));
+        int n = 0; for (auto& st : steps) if (st.gain > 0) ++n;
+        lastCaptureTaps = n;
+        if (n > 0)
+        {
+            undo.beginNewTransaction();
+            delex::taps::replaceMulti (apvts.state, steps, &undo);
+            if (auto* m = apvts.getParameter (id::taps_mode)) { m->beginChangeGesture(); m->setValueNotifyingHost (m->convertTo0to1 (2.0f)); m->endChangeGesture(); }
+        }
+        captureState.store (CapIdle);
+    }
+
+    // padrão actual → taps do motor (só publica quando muda)
+    const auto v = raw.load();
+    const auto pat = delex::taps::fromTree (apvts.state.getChildWithName (delex::taps::treeId()));
+    const auto set = delex::taps::toTapSet (pat, (delex::TapsMode) juce::jlimit (0, 2, (int) std::lround (v.taps_mode)),
+                                            (int) std::lround (v.taps_grid), v.taps_swing * 0.01f, currentHarmony());
+    bool same = set.count == tapPublished.count;
+    for (int k = 0; same && k < set.count; ++k)
+    {
+        const auto& a = set.taps[(size_t) k]; const auto& b = tapPublished.taps[(size_t) k];
+        same = a.pos == b.pos && a.gain == b.gain && a.pan == b.pan && a.tone == b.tone && a.semis == b.semis;
+    }
+    if (! same)
+    {
+        tapPublished = set;
+        const juce::SpinLock::ScopedLockType sl (tapLock);
+        tapShared = set;
+        ++tapVersion;
+    }
+}
+
+void DelexProcessor::applyGroove (int index)
+{
+    const auto& g = delex::taps::grooves();
+    if (! juce::isPositiveAndBelow (index, (int) g.size())) return;
+    undo.beginNewTransaction();
+    delex::taps::replaceMulti (apvts.state, delex::taps::grooveSteps (g[(size_t) index]), &undo);
+    auto setP = [this] (const char* pid, float plain) { if (auto* p = apvts.getParameter (pid)) { p->beginChangeGesture(); p->setValueNotifyingHost (p->convertTo0to1 (plain)); p->endChangeGesture(); } };
+    setP (id::taps_grid, (float) g[(size_t) index].grid);
+    setP (id::taps_mode, 2.0f);
+}
+
+void DelexProcessor::startGrooveCapture()
+{
+    capCount.store (0); capFast = capSlow = 0; capSamples = 0; capLastOnset = -1.0e9;
+    lastCaptureTaps = -1;
+    captureState.store (CapArmed);
 }
 
 // alvo do morph: os valores do slot que não está activo
@@ -217,7 +294,17 @@ void DelexProcessor::processAny (juce::AudioBuffer<Sample>& buffer)
         sidechainActive = scConnected;
     }
 
-    // processa em pedaços curtos: valores (e, nas próximas fases, modulação) actualizados a cada pedaço
+    // análise da entrada (tom e nota) — só copia amostras; a análise corre fora da thread de áudio
+    analyser.push (L, R, n);
+
+    // padrão de taps publicado pela thread de mensagens
+    if (tapVersion.load() != tapSeen)
+    {
+        const juce::SpinLock::ScopedTryLockType tl (tapLock);
+        if (tl.isLocked()) { engine.setTaps (tapShared); tapSeen = tapVersion.load(); }
+    }
+
+    // processa em pedaços curtos: valores, morph, pads e matriz actualizados a cada pedaço
     const int pads = uiPads.load() | midiPads.load();
     for (int pos = 0; pos < n; pos += kChunk)
     {
@@ -227,6 +314,22 @@ void DelexProcessor::processAny (juce::AudioBuffer<Sample>& buffer)
         {
             inLvl = juce::jmax (inLvl, std::abs (L[i]), std::abs (R[i]));
             if (keyL != nullptr) keyLvl = juce::jmax (keyLvl, std::abs (keyL[i]), std::abs (keyR[i]));
+        }
+        // captura de groove: espera pelo primeiro ataque e grava um compasso de inícios
+        if (const int cs = captureState.load(); cs == CapArmed || cs == CapRecording)
+        {
+            const float dtc = (float) len / (float) getSampleRate();
+            capFast += (1.0f - std::exp (-dtc / 0.004f)) * (inLvl - capFast);
+            capSlow += (1.0f - std::exp (-dtc / 0.15f)) * (inLvl - capSlow);
+            const double samplesPerQ = getSampleRate() * 60.0 / juce::jmax (20.0, bpm);
+            const bool onset = capFast > 0.02f && capFast > 2.2f * capSlow + 0.002f && capSamples - capLastOnset > 0.07 * getSampleRate();
+            if (cs == CapArmed && onset) { captureState.store (CapRecording); capSamples = 0; capLastOnset = 0; capOnsets[0] = 0; capCount.store (1); }
+            else if (cs == CapRecording)
+            {
+                capSamples += len;
+                if (onset && capCount.load() < (int) capOnsets.size()) { capOnsets[(size_t) capCount.load()] = capSamples / samplesPerQ; capCount.store (capCount.load() + 1); capLastOnset = capSamples; }
+                if (capSamples > samplesPerQ * 4.1) captureState.store (CapDone);
+            }
         }
         const Values v = valuesForChunk (bpm, inLvl, keyLvl, len);
         lastChunkValues = v;

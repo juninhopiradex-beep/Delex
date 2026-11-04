@@ -61,7 +61,9 @@ inline juce::String num (double v, int decimals)
     X(throw_auto) X(throw_only) X(throw_now) X(throw_thresh) X(throw_len) X(throw_gap) \
     X(morph) X(pitch) X(pitch_mix) X(reverse) X(model) X(heads) \
     X(mm_rate) X(mm1_src) X(mm1_dst) X(mm1_amt) X(mm2_src) X(mm2_dst) X(mm2_amt) \
-    X(mm3_src) X(mm3_dst) X(mm3_amt) X(mm4_src) X(mm4_dst) X(mm4_amt)
+    X(mm3_src) X(mm3_dst) X(mm3_amt) X(mm4_src) X(mm4_dst) X(mm4_amt) \
+    /* v1.0 — vaga C */ \
+    X(taps_mode) X(taps_level) X(taps_grid) X(taps_swing) X(harm_key) X(harm_scale)
 
 namespace id
 {
@@ -257,6 +259,15 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
                      AudioParameterFloatAttributes().withStringFromValueFunction (bip)));
     }
 
+    // --- v1.0 (vaga C)
+    addC (id::taps_mode, "Taps Mode", { "Off", "Echo Sculpt", "Multi-Tap" }, 0);
+    addF (id::taps_level, "Taps Level", { 0.0f, 100.0f }, 80.0f, pct);
+    addC (id::taps_grid, "Taps Grid", { "1/16", "1/16T", "1/8" }, 0);
+    addF (id::taps_swing, "Taps Swing", { 0.0f, 100.0f }, 0.0f, pct);
+    addC (id::harm_key, "Harmony Key", { "Auto", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0);
+    addC (id::harm_scale, "Harmony Scale", { "Auto", "Major", "Minor" }, 0);
+
+
     return { p.begin(), p.end() };
 }
 
@@ -397,6 +408,9 @@ inline Params toEngine (const Values& v, double bpm, double sr)
     p.reverse = v.reverse * 0.01f;
     p.model = (Model) juce::jlimit (0, 4, (int) std::lround (v.model));
     p.headsMask = headsMaskFor ((int) std::lround (v.heads));
+    p.tapsMode = (TapsMode) juce::jlimit (0, 2, (int) std::lround (v.taps_mode));
+    p.tapsLevel = v.taps_level * 0.01f;
+    p.bpm = (float) juce::jlimit (20.0, 999.0, bpm);
 
     // --- macros
     const float s = juce::jlimit (0.0f, 1.0f, v.space * 0.01f);
