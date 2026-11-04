@@ -950,6 +950,76 @@ int main()
         }
     }
 
+    // 10) vaga E: packs Signature Series (criar, importar, validar)
+    std::printf ("Vaga E (packs Signature Series)\n");
+    {
+        // pack de exemplo, criado a partir de estados reais do DELEX
+        struct Ex { const char* name; const char* data; int groove; };
+        const Ex ex[] = {
+            { "Throw Automático",   "div=1/4D;feedback=35;duck=1;mix=30;throw_auto=1;throw_only=1;throw_len=260", -1 },
+            { "Shimmer Celestial",  "div=1/4;feedback=70;pitch=12;pitch_mix=45;diff_amount=60;tone=10;mix=28", -1 },
+            { "Kizomba em Taps",    "div=1/4;feedback=20;mix=24;taps_level=85;tone=-10", 0 },
+            { "Fita de 3 Cabeças",  "div=1/4;feedback=45;model=Multi-Head;heads=1+2+3;drive=30;wow=20;mix=25", -1 },
+            { "Reverso Sonhador",   "div=1/2;feedback=50;reverse=70;diff_amount=40;mix=30", -1 },
+            { "Voz Limpa (Unmask)", "div=1/8D;feedback=40;unmask=60;guard=1;space=50;mix=25", -1 },
+            { "BBD Escuro",         "div=1/8;feedback=55;model=BBD;tone=-20;mix=22", -1 } };
+        auto srcDir = juce::File::getCurrentWorkingDirectory().getChildFile ("packs/src/Signature-Exemplo");
+        srcDir.deleteRecursively(); srcDir.createDirectory();
+        juce::Array<juce::File> files;
+        DelexProcessor d;
+        for (auto& e : ex)
+        {
+            delex::applyData (d.apvts, e.data, false);
+            if (e.groove >= 0) d.applyGroove (e.groove);
+            auto st = d.apvts.copyState();
+            st.setProperty ("presetName", juce::String::fromUTF8 (e.name), nullptr);
+            st.setProperty ("version", DelexProcessor::kStateVersion, nullptr);
+            auto f = srcDir.getChildFile (juce::File::createLegalFileName (juce::String::fromUTF8 (e.name)) + ".dlxpreset");
+            if (auto xml = st.createXml()) xml->writeTo (f);
+            files.add (f);
+        }
+        delex::packs::PackInfo info { "DELEX Signature Series - Exemplo", "Juninho Piradex",
+            juce::String::fromUTF8 ("Sete presets que mostram o DELEX 1.0: auto-throw, shimmer, grooves em taps, fita de 3 cabeças, reverse, unmask e BBD."),
+            "Seven presets showing DELEX 1.0: auto-throw, shimmer, tap grooves, 3-head tape, reverse, unmask and BBD." };
+        const auto packFile = juce::File::getCurrentWorkingDirectory().getChildFile ("packs/DELEX-Signature-Series-Exemplo.dlxpack");
+        juce::String err;
+        check (delex::packs::buildPack (files, info, packFile, err), "criar pack .dlxpack");
+
+        auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("delex_pack_test");
+        tmp.deleteRecursively(); tmp.createDirectory();
+        delex::packs::PackInfo got; int n = 0;
+        check (delex::packs::importPack (packFile, tmp, got, n, err) && n == 7 && got.author == "Juninho Piradex", "importar pack: 7 presets e autor", n, 7);
+        auto installed = tmp.getChildFile ("Packs").getChildFile ("DELEX Signature Series - Exemplo");
+        check (installed.getChildFile ("pack.json").existsAsFile(), "pack instalado com o manifesto");
+        // carregar um preset do pack
+        DelexProcessor q;
+        q.loadUserPreset (installed.getChildFile (juce::File::createLegalFileName (juce::String::fromUTF8 ("Shimmer Celestial")) + ".dlxpreset"));
+        check (std::abs (plain (q, delex::id::pitch_mix) - 45.0f) < 0.5f, "preset do pack carrega (shimmer 45 %)", plain (q, delex::id::pitch_mix), 45.0);
+        q.loadUserPreset (installed.getChildFile ("Kizomba em Taps.dlxpreset"));
+        const auto pat = delex::taps::fromTree (q.apvts.state.getChildWithName (delex::taps::treeId()));
+        juce::ignoreUnused (pat);
+        // pack adulterado → recusado
+        {
+            juce::MemoryBlock mb; packFile.loadFileAsData (mb);
+            juce::ZipFile z (packFile);
+            auto bad = tmp.getChildFile ("bad.dlxpack");
+            juce::ZipFile::Builder zb;
+            for (int i = 0; i < z.getNumEntries(); ++i)
+            {
+                const auto* e = z.getEntry (i);
+                std::unique_ptr<juce::InputStream> in (z.createStreamForEntry (i));
+                juce::MemoryBlock data; in->readIntoMemoryBlock (data);
+                if (e->filename.startsWith ("presets/") && data.getSize() > 50) static_cast<char*> (data.getData())[40] ^= 0x01;
+                zb.addEntry (new juce::MemoryInputStream (data, true), 9, e->filename, e->fileTime);
+            }
+            { juce::FileOutputStream o (bad); zb.writeToStream (o, nullptr); }
+            auto tmp2 = tmp.getChildFile ("t2"); tmp2.createDirectory();
+            const bool ok = delex::packs::importPack (bad, tmp2, got, n, err);
+            check (! ok && err.startsWith ("hash"), "pack alterado é recusado (SHA-256)");
+        }
+        tmp.deleteRecursively();
+    }
+
     testControls (p);
 
     // matriz de parâmetros (documentação gerada a partir do código)

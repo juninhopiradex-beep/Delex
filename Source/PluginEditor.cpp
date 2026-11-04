@@ -1047,10 +1047,33 @@ private:
             label (g, fb > 0 ? num (fb, 1) + " BPM" : u8 ("—"), t.removeFromTop (30.0f), 22.0f, W::Bold, col::green, juce::Justification::centredLeft, 0.02f);
             g.setColour (col::muted); g.setFont (font (12.5f));
             g.drawText (tr ("Em uso: ", "In use: ") + num (proc.hostBpm.load(), 1) + " BPM", t.removeFromTop (18.0f), juce::Justification::centredLeft);
+            // packs instalados
+            auto sg = p.sections[2].r.toFloat().reduced (14.0f).withTrimmedTop (30.0f);
+            const auto dirs = proc.userPresetFolder().getChildFile ("Packs").findChildFiles (juce::File::findDirectories, false);
+            g.setColour (col::muted); g.setFont (font (12.5f));
+            g.drawFittedText (tr ("Packs de presets de produtores e engenheiros, num ficheiro .dlxpack verificado (SHA-256). Os teus próprios presets podem virar um pack em Presets › EXPORTAR PACK.",
+                                  "Preset packs by producers and engineers, in a verified .dlxpack file (SHA-256). Your own presets can become a pack in Presets › EXPORT PACK."),
+                              sg.removeFromTop (64.0f).toNearestInt(), juce::Justification::topLeft, 4, 1.0f);
+            label (g, String (dirs.size()) + tr (" packs instalados", " packs installed"), sg.removeFromTop (22.0f), 15.0f, W::Bold, col::gold, juce::Justification::centredLeft, 0.02f);
         };
-        p.layout = [&p, &drop, &open, &apply, &tf]
+        auto& imp = p.add (std::make_unique<juce::TextButton> (tr ("IMPORTAR PACK…", "IMPORT PACK…")));
+        imp.setTooltip (tr ("Importa um pack Signature Series (.dlxpack); os presets aparecem em Utilizador", "Imports a Signature Series pack (.dlxpack); the presets appear under User"));
+        imp.onClick = [this]
         {
-            p.sections = { { { 0, 0, 640, 392 }, "DELAY MATCH" }, { { 652, 0, 312, 186 }, tr ("TEMPO", "TEMPO") } };
+            chooser = std::make_unique<juce::FileChooser> (tr ("Escolhe o pack", "Choose the pack"), juce::File(), "*.dlxpack");
+            chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this] (const juce::FileChooser& fc)
+            {
+                if (! fc.getResult().existsAsFile()) return;
+                packs::PackInfo info; int n = 0; juce::String err;
+                const bool ok = packs::importPack (fc.getResult(), proc.userPresetFolder(), info, n, err);
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, ok ? tr ("Pack importado", "Pack imported") : tr ("Não foi possível importar", "Could not import"),
+                    ok ? info.name + "\n" + juce::String (n) + tr (" presets em Utilizador.", " presets in User.") : tr ("Não é um pack DELEX válido (ou foi alterado).", "Not a valid DELEX pack (or it was modified)."));
+            });
+        };
+        p.layout = [&p, &drop, &open, &apply, &tf, &imp]
+        {
+            p.sections = { { { 0, 0, 640, 392 }, "DELAY MATCH" }, { { 652, 0, 312, 186 }, tr ("TEMPO", "TEMPO") }, { { 652, 198, 312, 194 }, "SIGNATURE SERIES" } };
+            imp.setBounds (666, 346, 284, 30);
             drop.setBounds (14, 34, 612, 150);
             open.setBounds (14, 194, 160, 28);
             apply.setBounds (466, 346, 160, 32);

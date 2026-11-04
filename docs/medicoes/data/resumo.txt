@@ -1,0 +1,15 @@
+Fita: queda por repetição (feedback 50 %)=-6.09282=dB
+1.ª repetição: 60 Hz em relação a 1 kHz=-3.23999=dB
+1.ª repetição: 14 kHz em relação a 1 kHz=-3.01128=dB
+6.ª repetição: 10 kHz em relação a 1 kHz=-2.95498=dB
+THD a DRIVE 60 % (1 kHz, −6 dBFS)=17.2039=%
+Alias a 2,5 kHz (normal)=-45.3743=dB
+Alias a 2,5 kHz (HQ 2x)=-109.453=dB
+Ruído de fundo (silêncio, feedback 90 %)=-300=dBFS
+HISS no máximo=-55.1833=dBFS RMS
+Erro máximo do tempo do eco (1 ms … 8 s)=1=amostras
+Soma mono dos ecos em contrafase, sem GUARD=-150=dB
+Soma mono dos ecos em contrafase, com GUARD=-8.97231e-08=dB
+CPU base (um núcleo, 48 kHz estéreo)=2.21987=%
+CPU com tudo ligado=8.80033=%
+Latência do plugin=0=amostras

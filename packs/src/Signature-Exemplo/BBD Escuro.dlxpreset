@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<DELEX presetName="BBD Escuro" version="3">
+  <PARAM id="bits" value="24.0"/>
+  <PARAM id="bypass" value="0.0"/>
+  <PARAM id="character" value="0.0"/>
+  <PARAM id="compensate" value="50.0"/>
+  <PARAM id="const_loud" value="0.0"/>
+  <PARAM id="cut_slope" value="1.0"/>
+  <PARAM id="diff_amount" value="0.0"/>
+  <PARAM id="diff_spread" value="11.99999904632568"/>
+  <PARAM id="disp_freq" value="499.9999694824219"/>
+  <PARAM id="disp_spread" value="0.0"/>
+  <PARAM id="div" value="8.0"/>
+  <PARAM id="drive" value="0.0"/>
+  <PARAM id="duck" value="0.0"/>
+  <PARAM id="duck_amount" value="9.0"/>
+  <PARAM id="duck_attack" value="3.999999761581421"/>
+  <PARAM id="duck_hold" value="60.0"/>
+  <PARAM id="duck_release" value="300.0"/>
+  <PARAM id="duck_thresh" value="-26.0"/>
+  <PARAM id="fb_balance" value="0.0"/>
+  <PARAM id="feedback" value="55.0"/>
+  <PARAM id="freeze" value="0.0"/>
+  <PARAM id="gate" value="0.0"/>
+  <PARAM id="gate_hold" value="250.0"/>
+  <PARAM id="gate_release" value="39.9999885559082"/>
+  <PARAM id="gate_thresh" value="-30.0"/>
+  <PARAM id="glide" value="249.9999847412109"/>
+  <PARAM id="grit_mix" value="100.0"/>
+  <PARAM id="guard" value="0.0"/>
+  <PARAM id="guard_amt" value="50.0"/>
+  <PARAM id="harm_key" value="0.0"/>
+  <PARAM id="harm_scale" value="0.0"/>
+  <PARAM id="heads" value="6.0"/>
+  <PARAM id="high_cut" value="14000.0"/>
+  <PARAM id="hiss" value="0.0"/>
+  <PARAM id="hs_freq" value="5999.99951171875"/>
+  <PARAM id="hs_gain" value="0.0"/>
+  <PARAM id="in_rot" value="0.0"/>
+  <PARAM id="in_width" value="100.0"/>
+  <PARAM id="jitter" value="0.0"/>
+  <PARAM id="key_src" value="0.0"/>
+  <PARAM id="loop_order" value="0.0"/>
+  <PARAM id="low_cut" value="59.99998474121094"/>
+  <PARAM id="ls_freq" value="150.0"/>
+  <PARAM id="ls_gain" value="0.0"/>
+  <PARAM id="mix" value="22.0"/>
+  <PARAM id="mix_law" value="1.0"/>
+  <PARAM id="mm1_amt" value="0.0"/>
+  <PARAM id="mm1_dst" value="0.0"/>
+  <PARAM id="mm1_src" value="0.0"/>
+  <PARAM id="mm2_amt" value="0.0"/>
+  <PARAM id="mm2_dst" value="0.0"/>
+  <PARAM id="mm2_src" value="0.0"/>
+  <PARAM id="mm3_amt" value="0.0"/>
+  <PARAM id="mm3_dst" value="0.0"/>
+  <PARAM id="mm3_src" value="0.0"/>
+  <PARAM id="mm4_amt" value="0.0"/>
+  <PARAM id="mm4_dst" value="0.0"/>
+  <PARAM id="mm4_src" value="0.0"/>
+  <PARAM id="mm_rate" value="0.4999999403953552"/>
+  <PARAM id="mod_depth" value="0.0"/>
+  <PARAM id="mod_div" value="3.0"/>
+  <PARAM id="mod_offset" value="50.0"/>
+  <PARAM id="mod_rate" value="0.3500000834465027"/>
+  <PARAM id="mod_shape" value="0.0"/>
+  <PARAM id="mod_sync" value="0.0"/>
+  <PARAM id="model" value="1.0"/>
+  <PARAM id="monitor" value="0.0"/>
+  <PARAM id="mono_safe" value="0.0"/>
+  <PARAM id="morph" value="0.0"/>
+  <PARAM id="out_rot" value="0.0"/>
+  <PARAM id="out_trim" value="0.0"/>
+  <PARAM id="out_width" value="100.0"/>
+  <PARAM id="peak2_freq" value="3000.000244140625"/>
+  <PARAM id="peak2_gain" value="0.0"/>
+  <PARAM id="peak2_q" value="0.9999998211860657"/>
+  <PARAM id="peak_freq" value="999.9999389648438"/>
+  <PARAM id="peak_gain" value="0.0"/>
+  <PARAM id="peak_q" value="0.9999998211860657"/>
+  <PARAM id="pitch" value="12.0"/>
+  <PARAM id="pitch_mix" value="0.0"/>
+  <PARAM id="pre_drive" value="0.0"/>
+  <PARAM id="r_ratio" value="1.0"/>
+  <PARAM id="rate" value="48000.0"/>
+  <PARAM id="reverse" value="0.0"/>
+  <PARAM id="rot_mode" value="0.0"/>
+  <PARAM id="rotation" value="0.0"/>
+  <PARAM id="routing" value="0.0"/>
+  <PARAM id="sat_hq" value="0.0"/>
+  <PARAM id="space" value="30.00000190734863"/>
+  <PARAM id="sync" value="1.0"/>
+  <PARAM id="taps_grid" value="0.0"/>
+  <PARAM id="taps_level" value="80.0"/>
+  <PARAM id="taps_mode" value="0.0"/>
+  <PARAM id="taps_swing" value="0.0"/>
+  <PARAM id="tempo_follow" value="0.0"/>
+  <PARAM id="throw_auto" value="0.0"/>
+  <PARAM id="throw_gap" value="120.0"/>
+  <PARAM id="throw_len" value="249.9999847412109"/>
+  <PARAM id="throw_now" value="0.0"/>
+  <PARAM id="throw_only" value="0.0"/>
+  <PARAM id="throw_thresh" value="-30.0"/>
+  <PARAM id="time" value="374.9999694824219"/>
+  <PARAM id="tmap_bars" value="2.0"/>
+  <PARAM id="tmap_on" value="0.0"/>
+  <PARAM id="tone" value="-20.0"/>
+  <PARAM id="transition" value="0.0"/>
+  <PARAM id="unmask" value="0.0"/>
+  <PARAM id="warmth" value="20.0"/>
+  <PARAM id="wet_trim" value="0.0"/>
+  <PARAM id="wow" value="0.0"/>
+  <TAPS>
+    <S i="0" g="0.800000011920929" p="-0.4000000059604645" t="1.0" h="0"/>
+    <S i="1" g="0.6240000128746033" p="0.4000000059604645" t="0.949999988079071"
+       h="0"/>
+    <S i="2" g="0.486719936132431" p="-0.4000000059604645" t="0.8999999761581421"
+       h="0"/>
+    <S i="3" g="0.3796415627002716" p="0.4000000059604645" t="0.8500000238418579"
+       h="0"/>
+    <S i="4" g="0.2961204051971436" p="-0.4000000059604645" t="0.800000011920929"
+       h="0"/>
+    <S i="5" g="0.2309739142656326" p="0.4000000059604645" t="0.75"
+       h="0"/>
+    <S i="6" g="0.1801596432924271" p="-0.4000000059604645" t="0.699999988079071"
+       h="0"/>
+    <S i="7" g="0.1405245214700699" p="0.4000000059604645" t="0.6499999761581421"
+       h="0"/>
+    <S i="8" g="0.1096091195940971" p="-0.4000000059604645" t="0.6000000238418579"
+       h="0"/>
+    <S i="9" g="0.08549510687589645" p="0.4000000059604645" t="0.5499999523162842"
+       h="0"/>
+    <S i="10" g="0.0" p="-0.4000000059604645" t="0.5" h="0"/>
+    <S i="11" g="0.0" p="0.4000000059604645" t="0.449999988079071" h="0"/>
+    <S i="12" g="0.0" p="-0.4000000059604645" t="0.3999999761581421"
+       h="0"/>
+    <S i="13" g="0.0" p="0.4000000059604645" t="0.3499999642372131"
+       h="0"/>
+    <S i="14" g="0.0" p="-0.4000000059604645" t="0.300000011920929"
+       h="0"/>
+    <S i="15" g="0.0" p="0.4000000059604645" t="0.25" h="0"/>
+    <M i="0" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="1" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="2" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="3" g="0.75" p="-0.4000000059604645" t="1.0" h="0"/>
+    <M i="4" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="5" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="6" g="0.550000011920929" p="0.4000000059604645" t="1.0" h="0"/>
+    <M i="7" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="8" g="0.699999988079071" p="0.0" t="1.0" h="0"/>
+    <M i="9" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="10" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="11" g="0.449999988079071" p="-0.4000000059604645" t="1.0"
+       h="0"/>
+    <M i="12" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="13" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="14" g="0.4000000059604645" p="0.4000000059604645" t="1.0"
+       h="0"/>
+    <M i="15" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="16" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="17" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="18" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="19" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="20" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="21" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="22" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="23" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="24" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="25" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="26" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="27" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="28" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="29" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="30" g="0.0" p="0.0" t="1.0" h="0"/>
+    <M i="31" g="0.0" p="0.0" t="1.0" h="0"/>
+  </TAPS>
+</DELEX>

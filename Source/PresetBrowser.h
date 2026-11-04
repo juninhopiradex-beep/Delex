@@ -5,6 +5,8 @@
 
 #include "Widgets.h"
 #include "Search.h"
+#include "Packs.h"
+#include <map>
 
 namespace delex::ui
 {
@@ -82,6 +84,15 @@ public:
             };
             addAndMakeVisible (b);
         }
+
+        importPack.setButtonText (tr ("IMPORTAR PACK…", "IMPORT PACK…"));
+        importPack.setTooltip (tr ("Importa um pack Signature Series (.dlxpack)", "Imports a Signature Series pack (.dlxpack)"));
+        importPack.onClick = [this] { askImport(); };
+        addAndMakeVisible (importPack);
+        exportPack.setButtonText (tr ("EXPORTAR PACK…", "EXPORT PACK…"));
+        exportPack.setTooltip (tr ("Junta os teus presets num pack (.dlxpack) para partilhar ou vender", "Bundles your presets into a pack (.dlxpack) to share or sell"));
+        exportPack.onClick = [this] { askExport(); };
+        addAndMakeVisible (exportPack);
 
         close.outline = true;
         close.setTooltip (tr ("Fechar", "Close"));
@@ -196,6 +207,8 @@ public:
         for (auto* b : catButtons) { b->setBounds (8, y, 204, step - 2); y += step; }
         list.setBounds (229, 84, getWidth() - 229 - 250 - 12, getHeight() - 84 - 10);
         load.setBounds (getWidth() - 234, getHeight() - 54, 218, 38);
+        importPack.setBounds (getWidth() - 234, getHeight() - 96, 106, 30);
+        exportPack.setBounds (getWidth() - 122, getHeight() - 96, 106, 30);
     }
 
     bool keyPressed (const juce::KeyPress& k) override
@@ -231,7 +244,7 @@ private:
 
     void rebuild()
     {
-        userFiles = proc.userPresetFolder().findChildFiles (juce::File::findFiles, false, "*.dlxpreset");
+        userFiles = proc.userPresetFolder().findChildFiles (juce::File::findFiles, true, "*.dlxpreset");
         userFiles.sort();
         entries.clear();
         const auto q = search.getText().trim().toLowerCase();
@@ -258,9 +271,22 @@ private:
                             || (category >= 2 && category < 2 + ncat && e.category == presetCategories()[category - 2]);
             if ((q.isNotEmpty() || inCat) && matches (e)) entries.push_back (e);
         }
+        std::map<juce::String, packs::PackInfo> packInfo;
+        const auto packsDir = proc.userPresetFolder().getChildFile ("Packs");
         for (auto& f : userFiles)
         {
             Entry e { f.getFileNameWithoutExtension(), tr ("Utilizador", "User"), tr ("Preset guardado por ti.", "Preset saved by you."), {}, tr ("utilizador", "user"), {}, {}, -1, f, {} };
+            if (f.isAChildOf (packsDir))
+            {
+                const auto dir = f.getParentDirectory();
+                auto it = packInfo.find (dir.getFullPathName());
+                if (it == packInfo.end()) it = packInfo.emplace (dir.getFullPathName(), packs::readInstalled (dir)).first;
+                e.category = it->second.name;
+                e.sub = it->second.author.isNotEmpty() ? tr ("por ", "by ") + it->second.author : juce::String();
+                e.desc = tr (it->second.descPt.isNotEmpty() ? it->second.descPt.toRawUTF8() : "Preset de um pack Signature Series.",
+                             it->second.descEn.isNotEmpty() ? it->second.descEn.toRawUTF8() : "Preset from a Signature Series pack.");
+                e.tags = "pack, signature, " + it->second.author;
+            }
             const bool inCat = category == 1 || category == 2 + ncat || (category == 0 && proc.isFavourite (e.name));
             if ((q.isNotEmpty() || inCat) && matches (e)) entries.push_back (e);
         }
@@ -293,6 +319,62 @@ private:
             if (onLoaded) onLoaded();
             repaint();
         }
+    }
+
+    void showMessage (const juce::String& title, const juce::String& text)
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, title, text);
+    }
+
+    void askImport()
+    {
+        chooser = std::make_unique<juce::FileChooser> (tr ("Escolhe o pack", "Choose the pack"), juce::File(), "*.dlxpack");
+        juce::Component::SafePointer<PresetBrowser> safe (this);
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [safe] (const juce::FileChooser& fc)
+        {
+            if (safe == nullptr || ! fc.getResult().existsAsFile()) return;
+            packs::PackInfo info; int n = 0; juce::String err;
+            if (packs::importPack (fc.getResult(), safe->proc.userPresetFolder(), info, n, err))
+            {
+                safe->category = 2 + presetCategories().size(); safe->search.clear(); safe->rebuild();
+                safe->showMessage (tr ("Pack importado", "Pack imported"), info.name + (info.author.isNotEmpty() ? tr (" por ", " by ") + info.author : juce::String())
+                                   + "\n" + juce::String (n) + tr (" presets em Utilizador.", " presets in User."));
+            }
+            else safe->showMessage (tr ("Não foi possível importar", "Could not import"),
+                                    err.startsWith ("hash") ? tr ("O pack está danificado ou foi alterado.", "The pack is damaged or was modified.")
+                                  : err == "newer" ? tr ("Este pack precisa de uma versão mais recente do DELEX.", "This pack needs a newer DELEX version.")
+                                                   : tr ("Não é um pack DELEX válido.", "Not a valid DELEX pack."));
+        });
+    }
+
+    void askExport()
+    {
+        juce::Array<juce::File> mine;
+        const auto packsDir = proc.userPresetFolder().getChildFile ("Packs");
+        for (auto& f : proc.userPresetFolder().findChildFiles (juce::File::findFiles, false, "*.dlxpreset")) if (! f.isAChildOf (packsDir)) mine.add (f);
+        if (mine.isEmpty()) { showMessage (tr ("Sem presets", "No presets"), tr ("Guarda primeiro alguns presets teus (GUARDAR COMO…).", "Save some presets of your own first (SAVE AS…).")); return; }
+        auto* w = new juce::AlertWindow (tr ("Exportar pack", "Export pack"), juce::String (mine.size()) + tr (" presets teus vão para o pack.", " of your presets go into the pack."), juce::MessageBoxIconType::NoIcon, this);
+        w->addTextEditor ("name", "Signature Series", tr ("Nome do pack", "Pack name"));
+        w->addTextEditor ("author", "", tr ("Autor", "Author"));
+        w->addTextEditor ("desc", "", tr ("Descrição", "Description"));
+        w->addButton (tr ("Exportar", "Export"), 1, juce::KeyPress (juce::KeyPress::returnKey));
+        w->addButton (tr ("Cancelar", "Cancel"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        juce::Component::SafePointer<PresetBrowser> safe (this);
+        w->enterModalState (true, juce::ModalCallbackFunction::create ([safe, w, mine] (int r)
+        {
+            if (r != 1 || safe == nullptr) return;
+            packs::PackInfo info { w->getTextEditorContents ("name"), w->getTextEditorContents ("author"), w->getTextEditorContents ("desc"), w->getTextEditorContents ("desc") };
+            const auto dest = juce::File::getSpecialLocation (juce::File::userDesktopDirectory).getChildFile (packs::safeName (info.name) + ".dlxpack");
+            safe->chooser = std::make_unique<juce::FileChooser> (tr ("Guardar pack", "Save pack"), dest, "*.dlxpack");
+            safe->chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting, [safe, info, mine] (const juce::FileChooser& fc)
+            {
+                if (safe == nullptr || fc.getResult() == juce::File()) return;
+                juce::String err;
+                const auto out = fc.getResult().withFileExtension ("dlxpack");
+                if (packs::buildPack (mine, info, out, err)) safe->showMessage (tr ("Pack exportado", "Pack exported"), out.getFullPathName());
+                else safe->showMessage (tr ("Erro", "Error"), tr ("Não foi possível escrever o pack.", "Could not write the pack."));
+            });
+        }), true);
     }
 
     void askSave()
@@ -350,7 +432,8 @@ private:
     juce::OwnedArray<juce::TextButton> catButtons, lockButtons;
     int lockLabelX = 400;
     juce::ListBox list;
-    juce::TextButton load, saveAs, openFolder;
+    juce::TextButton load, saveAs, openFolder, importPack, exportPack;
+    std::unique_ptr<juce::FileChooser> chooser;
     IconButton close { "fechar", [] (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c) { icons::cross (g, r, c); } };
     std::vector<Entry> entries;
     juce::Array<juce::File> userFiles;
