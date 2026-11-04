@@ -49,6 +49,24 @@ enum class Routing    { Dual = 0, PingPong = 1, Mono = 2 };
 enum class Transition { TapeGlide = 0, Crossfade = 1 };
 enum class ModShape   { Sine = 0, Triangle = 1, Random = 2 };
 enum class CutSlope   { dB6 = 0, dB12 = 1, dB24 = 2 };
+enum class Monitor    { Normal = 0, WetSolo = 1, Delta = 2, Mono = 3, Phone = 4, Club = 5 };
+
+// Ordem dos 5 módulos do loop: 0 Grit · 1 EQ · 2 Dispersão · 3 Difusão · 4 Fita.
+// As 4 primeiras permutações são as ordens das versões anteriores (compatibilidade).
+inline const std::vector<std::array<uint8_t, 5>>& loopPermutations()
+{
+    static const std::vector<std::array<uint8_t, 5>> perms = []
+    {
+        std::vector<std::array<uint8_t, 5>> v { { 0, 1, 2, 3, 4 }, { 1, 4, 3, 2, 0 }, { 4, 1, 3, 2, 0 }, { 3, 2, 1, 4, 0 } };
+        std::array<uint8_t, 5> a { 0, 1, 2, 3, 4 };
+        do
+        {
+            if (std::find (v.begin(), v.end(), a) == v.end()) v.push_back (a);
+        } while (std::next_permutation (a.begin(), a.end()));
+        return v;
+    }();
+    return perms;
+}
 
 struct Params
 {
@@ -76,6 +94,8 @@ struct Params
     float lowCutHz = 20.0f, highCutHz = 20000.0f;
     CutSlope cutSlope = CutSlope::dB12;
     float peakHz = 1000.0f, peakDb = 0.0f, peakQ = 1.0f, compensate = 0.5f;
+    float lsHz = 150.0f, lsDb = 0.0f, hsHz = 6000.0f, hsDb = 0.0f;   // shelves
+    float pk2Hz = 3000.0f, pk2Db = 0.0f, pk2Q = 1.0f;                 // segundo pico
 
     // Dispersão / difusão
     float dispHz = 500.0f, dispSpreadMs = 0.0f;
@@ -87,7 +107,7 @@ struct Params
     // Digital grit
     float gritBits = 24.0f, gritRateHz = 192000.0f, gritJitter = 0.0f, gritMix = 1.0f;
 
-    // Ordem do loop (0…3)
+    // Ordem do loop (índice em loopPermutations(), 0…119)
     int loopOrder = 0;
 
     // Ganhos
@@ -105,6 +125,12 @@ struct Params
     // Mistura
     float mix = 0.25f;  bool equalPower = true;
     bool  bypass = false;
+
+    // Escuta e qualidade
+    Monitor monitor = Monitor::Normal;
+    bool  constLoudness = false;    // volume dos ecos independente do feedback
+    float hiss = 0.0f;              // 0 … 1 (ruído de fita no sinal com efeito)
+    bool  satHQ = false;            // saturação com oversampling 2×
 };
 
 // -----------------------------------------------------------------------------
@@ -148,6 +174,18 @@ struct SVF
         const float A = std::pow (10.0f, db / 40.0f);
         const float k = 1.0f / (q * A);
         set (g (hz, sr), k); m0 = 1; m1 = k * (A * A - 1.0f); m2 = 0;
+    }
+    void setLowShelf (float hz, float q, float db, float sr) noexcept
+    {
+        const float A = std::pow (10.0f, db / 40.0f);
+        const float k = 1.0f / q;
+        set (g (hz, sr) / std::sqrt (A), k); m0 = 1; m1 = k * (A - 1.0f); m2 = A * A - 1.0f;
+    }
+    void setHighShelf (float hz, float q, float db, float sr) noexcept
+    {
+        const float A = std::pow (10.0f, db / 40.0f);
+        const float k = 1.0f / q;
+        set (g (hz, sr) * std::sqrt (A), k); m0 = A * A; m1 = k * (1.0f - A) * A; m2 = 1.0f - A * A;
     }
     void set (float gg, float k) noexcept { a1 = 1.0f / (1.0f + gg * (gg + k)); a2 = gg * a1; a3 = gg * a2; }
     void reset() noexcept { ic1 = ic2 = 0; }
@@ -198,6 +236,70 @@ struct TanhADAA
         if (std::fabs (d) < 1.0e-4f) y = std::tanh (0.5f * (x + x1));
         else                          y = (F (x) - F (x1)) / d;
         x1 = x;
+        return y;
+    }
+};
+
+// -----------------------------------------------------------------------------
+//  Oversampling 2× para a saturação (FIR de fase linear, janela de Kaiser).
+//  Latência total (subir + descer) = kLatency amostras à taxa base; é
+//  descontada no tempo de atraso, por isso o eco continua exactamente a tempo.
+// -----------------------------------------------------------------------------
+struct Oversampler2x
+{
+    static constexpr int kTaps = 31;           // ímpar; atraso de grupo (kTaps-1)/2 à taxa 2×
+    static constexpr int kLatency = 14;        // medido (tests/test_core.cpp): pico do impulso e correlação a 1 kHz
+    float h[kTaps] {};
+    float up[kTaps] {};   int upPos = 0;       // histórico à taxa 2× (inserção de zeros)
+    float dn[kTaps] {};   int dnPos = 0;
+
+    static double bessel0 (double x) noexcept
+    {
+        double sum = 1, t = 1;
+        for (int k = 1; k < 30; ++k) { t *= (x / (2.0 * k)) * (x / (2.0 * k)); sum += t; }
+        return sum;
+    }
+    Oversampler2x()
+    {
+        const double beta = 8.0, M = kTaps - 1;
+        double sum = 0;
+        for (int n = 0; n < kTaps; ++n)
+        {
+            const double m = n - M / 2.0;
+            const double sinc = m == 0 ? 0.5 : std::sin (3.14159265358979 * 0.5 * m) / (3.14159265358979 * m);   // corte em fs/4 (à taxa 2×)
+            const double r = 2.0 * n / M - 1.0;
+            const double w = bessel0 (beta * std::sqrt (std::max (0.0, 1.0 - r * r))) / bessel0 (beta);
+            h[n] = (float) (sinc * w);
+            sum += h[n];
+        }
+        for (auto& c : h) c = (float) (c / sum);
+    }
+    void reset() noexcept { std::fill (std::begin (up), std::end (up), 0.0f); std::fill (std::begin (dn), std::end (dn), 0.0f); upPos = dnPos = 0; }
+
+    float firUp() const noexcept
+    {
+        float y = 0;
+        for (int k = 0; k < kTaps; ++k) y += h[k] * up[(upPos - k + kTaps) % kTaps];
+        return y;
+    }
+    // processa uma amostra: sobe a 2×, aplica f às duas sub-amostras, desce
+    template <typename F> float process (float x, F&& f) noexcept
+    {
+        float s2[2];
+        for (int j = 0; j < 2; ++j)
+        {
+            upPos = (upPos + 1) % kTaps;
+            up[upPos] = j == 0 ? 2.0f * x : 0.0f;   // ganho 2 compensa os zeros
+            s2[j] = f (firUp());
+        }
+        float y = 0;
+        for (int j = 0; j < 2; ++j)
+        {
+            dnPos = (dnPos + 1) % kTaps;
+            dn[dnPos] = s2[j];
+            if (j == 1)
+                for (int k = 0; k < kTaps; ++k) y += h[k] * dn[(dnPos - k + kTaps) % kTaps];
+        }
         return y;
     }
 };
@@ -320,11 +422,15 @@ public:
             emph[c].reset(); deemph[c].reset(); sat[c].reset();
             gritAA[c].reset(); gritHold[c] = 0; dcX[c] = dcY[c] = 0;
             monoLP[c].reset();
+            lsF[c].reset(); hsF[c].reset(); pk2F[c].reset(); os[c].reset();
+            phoneHP[c].reset(); phoneLP[c].reset(); clubLP[c].reset(); clubLP2[c].reset();
+            pink[c][0] = pink[c][1] = pink[c][2] = 0;
             r[c] = 0;
         }
         gritPhase = 0;
         lfo = LFO{}; lfoR = LFO{}; wowLfo = LFO{};
         lfoR.rng.s = 0x2545F491u; wowLfo.rng.s = 0x6C8E9CF5u;   // sementes diferentes por gerador
+        hissRng[0].s = 0x1234567u; hissRng[1].s = 0x7654321u;
         lfoPhase = wowPhase = flutPhase = 0;
         envDuck = 0; duckGainDb = 0; holdCount = 0;
         envGate = 0; gateG = 1; gateHold = 0;
@@ -341,7 +447,8 @@ public:
     int   resets() const noexcept          { return safetyResets; }
 
     // ------------------------------------------------------------ processo
-    void process (float* L, float* R, int n) noexcept
+    // keyL/keyR: sinal de sidechain (opcional) para ducker e gate; nulo = a própria entrada
+    void process (float* L, float* R, int n, const float* keyL = nullptr, const float* keyR = nullptr) noexcept
     {
         if (! haveTargets) snapToTargets();
         loopLimitPeak = 0;
@@ -351,6 +458,8 @@ public:
             if ((ctl++ & 15) == 0) updateControl();
 
             const float dryL = L[i], dryR = R[i];
+            const float kL = keyL != nullptr ? keyL[i] : dryL;
+            const float kR = keyR != nullptr ? keyR[i] : (keyL != nullptr ? keyL[i] : dryR);
 
             // --- suavização por amostra
             const float fbS   = sm.fb.next (cur.fbTarget);
@@ -419,7 +528,7 @@ public:
 
             // --- wet: ducker, rotação/largura de saída
             float wL = yL, wR = yR;
-            const float duckG = ducker (dryL, dryR) * gate (dryL, dryR);
+            const float duckG = ducker (kL, kR) * gate (kL, kR);
             wL *= duckG; wR *= duckG;
             {
                 const float rl = Rout.a * wL + Rout.b * wR, rr = Rout.c * wL + Rout.d * wR;
@@ -431,8 +540,9 @@ public:
                 wL = (m + s) * norm;
                 wR = (m - s) * norm;
             }
-            const float mk = sm.makeup.next (makeup);   // ganho de compensação da saturação (fora do loop)
+            const float mk = sm.makeup.next (makeup) * sm.loud.next (loudComp);   // saturação + volume constante (fora do loop)
             wL *= wetG * mk; wR *= wetG * mk;
+            if (hissGain > 0.0f) { wL += hissGain * hissNoise (0); wR += hissGain * hissNoise (1); }
 
             // --- mistura
             float gd, gw;
@@ -440,6 +550,9 @@ public:
             else                { gd = 1.0f - mixS; gw = mixS; }
             float oL = (gd * dryL + gw * wL) * outG;
             float oR = (gd * dryR + gw * wR) * outG;
+
+            // --- escuta (monitorização)
+            monitorStage (oL, oR, wL * outG, wR * outG, gw);
 
             // --- bypass sem cliques (os ecos continuam a correr por baixo)
             oL += byp * (dryL - oL);
@@ -485,7 +598,8 @@ public:
 
     static float compensation (const Params& p) noexcept
     {
-        return dbToGain (-std::max (0.0f, p.peakDb) * p.compensate);
+        const float boost = std::max ({ 0.0f, p.peakDb, p.pk2Db, p.lsDb, p.hsDb });
+        return dbToGain (-boost * p.compensate);
     }
     static float eqGainAt1k (const Params& p) noexcept
     {
@@ -515,7 +629,7 @@ private:
     struct Smooth
     {
         OnePole fb, mix, freeze, bypass, wet, out, pre, inW, outW,
-                ma, mb, mc, md, ia, ib, ic, id, oa, ob, oc, od, balL, balR, pingpong, mono, makeup;
+                ma, mb, mc, md, ia, ib, ic, id, oa, ob, oc, od, balL, balR, pingpong, mono, makeup, loud;
     } sm;
 
     // filtros smoothed a ritmo de controlo
@@ -570,6 +684,22 @@ private:
     // mono-safe
     OnePoleTPT monoLP[2];
 
+    // EQ extra (shelves + 2.º pico)
+    SVF lsF[2], hsF[2], pk2F[2];
+    bool lsOn = false, hsOn = false, pk2On = false;
+    OnePole cLs, cLsDb, cHs, cHsDb, cPk2, cPk2Db, cPk2Q;
+
+    // saturação HQ
+    Oversampler2x os[2];
+
+    // volume constante e hiss
+    float loudComp = 1.0f, hissGain = 0.0f;
+    Rng hissRng[2];
+    float pink[2][3] {};
+
+    // escuta
+    SVF phoneHP[2], phoneLP[2], clubLP[2], clubLP2[2];
+
     // ---------------------------------------------------------------- helpers
     static float dbToGainFast (float db) noexcept { return std::exp (db * 0.11512925f); }
 
@@ -599,10 +729,11 @@ private:
         snap (sm.pingpong, tgt.routing == Routing::PingPong ? 1.0f : 0.0f);
         snap (sm.mono, tgt.routing == Routing::Mono ? 1.0f : 0.0f);
         snap (sm.makeup, makeup);
+        snap (sm.loud, loudComp);
         for (int c = 0; c < 2; ++c)
         {
-            const float t = msToSamples (c == 0 ? tgt.timeMsL : timeR());
-            heads[c].a = heads[c].b = heads[c].glide = clampf (t, 4.0f, (float) dl[c].capacity());
+            const float t = targetDelay (c);   // já com as compensações (difusão, oversampling)
+            heads[c].a = heads[c].b = heads[c].glide = t;
             heads[c].xf = 0; heads[c].onB = false; heads[c].fading = false;
         }
         haveTargets = true;
@@ -620,12 +751,13 @@ private:
         {
             for (auto* s : { &sm.fb, &sm.mix, &sm.freeze, &sm.wet, &sm.out, &sm.pre, &sm.inW, &sm.outW,
                              &sm.ma, &sm.mb, &sm.mc, &sm.md, &sm.ia, &sm.ib, &sm.ic, &sm.id,
-                             &sm.oa, &sm.ob, &sm.oc, &sm.od, &sm.balL, &sm.balR, &sm.pingpong, &sm.mono, &sm.makeup })
+                             &sm.oa, &sm.ob, &sm.oc, &sm.od, &sm.balL, &sm.balR, &sm.pingpong, &sm.mono, &sm.makeup, &sm.loud })
                 s->setTime (25.0f, sr);
             sm.bypass.setTime (15.0f, sr);
             sm.freeze.setTime (60.0f, sr);
             for (auto* s : { &cLo, &cHi, &cPk, &cPkDb, &cPkQ, &cDispHz, &cDispQ, &cDispW, &cDiffAmt, &cDiffSpread,
-                             &cWarm, &cDrive, &cBits, &cRate, &cGritMix, &cJit, &cModAmpL, &cModAmpR, &cModRate })
+                             &cWarm, &cDrive, &cBits, &cRate, &cGritMix, &cJit, &cModAmpL, &cModAmpR, &cModRate,
+                             &cLs, &cLsDb, &cHs, &cHsDb, &cPk2, &cPk2Db, &cPk2Q })
                 setT (*s, 30.0f);
             setT (cDiffSpread, 120.0f);
         }
@@ -660,6 +792,40 @@ private:
                 cutHi[c][0].setLowpass (hiHz, 0.5411961f, sr);  cutHi[c][1].setLowpass (hiHz, 1.3065630f, sr);
             }
             peak[c].setBell (std::exp (pk), clampf (pq, 0.1f, 20.0f), pdb, sr);
+        }
+        {
+            const float lsHz = std::exp (v (cLs, std::log (clampf (tgt.lsHz, 20.0f, 0.4f * sr)))), lsDb = v (cLsDb, tgt.lsDb);
+            const float hsHz = std::exp (v (cHs, std::log (clampf (tgt.hsHz, 200.0f, 0.4f * sr)))), hsDb = v (cHsDb, tgt.hsDb);
+            const float p2Hz = std::exp (v (cPk2, std::log (clampf (tgt.pk2Hz, 20.0f, 0.45f * sr)))), p2Db = v (cPk2Db, tgt.pk2Db), p2Q = v (cPk2Q, tgt.pk2Q);
+            lsOn = std::fabs (lsDb) > 0.01f || std::fabs (tgt.lsDb) > 0.01f;
+            hsOn = std::fabs (hsDb) > 0.01f || std::fabs (tgt.hsDb) > 0.01f;
+            pk2On = std::fabs (p2Db) > 0.01f || std::fabs (tgt.pk2Db) > 0.01f;
+            for (int c = 0; c < 2; ++c)
+            {
+                lsF[c].setLowShelf (lsHz, 0.70710678f, lsDb, sr);
+                hsF[c].setHighShelf (hsHz, 0.70710678f, hsDb, sr);
+                pk2F[c].setBell (p2Hz, clampf (p2Q, 0.1f, 20.0f), p2Db, sr);
+            }
+        }
+
+        // --- volume constante: a energia de uma cauda com ganho de loop g é 1/(1−g²);
+        //     normaliza para a de feedback 40 % (o volume "de referência")
+        if (tgt.constLoudness)
+        {
+            const float g = clampf (tgt.feedback * compGain * eqGainAt1k (tgt), 0.0f, 0.985f);
+            loudComp = clampf (std::sqrt ((1.0f - g * g) / (1.0f - 0.16f)), 0.125f, 2.0f);
+        }
+        else loudComp = 1.0f;
+        hissGain = tgt.hiss > 0.0f ? dbToGain (-92.0f + 44.0f * tgt.hiss) : 0.0f;   // −92 … −48 dBFS
+
+        if (snap || monitorPrev != (int) tgt.monitor)
+        {
+            monitorPrev = (int) tgt.monitor;
+            for (int c = 0; c < 2; ++c)
+            {
+                phoneHP[c].setHighpass (400.0f, 0.70710678f, sr); phoneLP[c].setLowpass (3500.0f, 0.70710678f, sr);
+                clubLP[c].setLowpass (120.0f, 0.70710678f, sr);   clubLP2[c].setLowpass (120.0f, 0.70710678f, sr);
+            }
         }
 
         // --- dispersão: N allpass de 2.ª ordem; atraso de grupo no centro = N·2Q/(π·f0)
@@ -720,6 +886,7 @@ private:
     }
 
     bool gritActive = false;
+    int monitorPrev = -1;
     float modAmp = 0, modRate = 0.3f, wowAmp = 0;
     float flutPhase = 0;
 
@@ -753,12 +920,19 @@ private:
         }
     }
 
+    // tempo de leitura pedido, descontando o atraso que os módulos do loop acrescentam
+    float targetDelay (int c) const noexcept
+    {
+        const float cap = (float) dl[c].capacity() - 4.0f;
+        const float compensationDiff = diffAmt > 0.0f ? 0.5f * diffSum * diffAmt : 0.0f;   // difusão
+        const float osLatency = tgt.satHQ ? (float) Oversampler2x::kLatency : 0.0f;          // oversampling da saturação
+        return clampf (msToSamples (c == 0 ? tgt.timeMsL : timeR()) - compensationDiff - osLatency, 4.0f, cap);
+    }
+
     float readChannel (int c, float mod) noexcept
     {
         auto& h = heads[c];
-        const float cap = (float) dl[c].capacity() - 4.0f;
-        const float compensationDiff = diffAmt > 0.0f ? 0.5f * diffSum * diffAmt : 0.0f;   // difusão adiciona atraso no loop
-        const float target = clampf (msToSamples (c == 0 ? tgt.timeMsL : timeR()) - compensationDiff, 4.0f, cap);
+        const float target = targetDelay (c);
 
         if (tgt.transition == Transition::TapeGlide)
         {
@@ -816,7 +990,11 @@ private:
             x = cutLo[c][0].process (x); x = cutHi[c][0].process (x);
             if (slope == 2) { x = cutLo[c][1].process (x); x = cutHi[c][1].process (x); }
         }
-        return peak[c].process (x);
+        x = peak[c].process (x);
+        if (lsOn)  x = lsF[c].process (x);
+        if (hsOn)  x = hsF[c].process (x);
+        if (pk2On) x = pk2F[c].process (x);
+        return x;
     }
 
     float stDisp (int c, float x) noexcept
@@ -844,7 +1022,13 @@ private:
     {
         const float e = emph[c].process (x);
         float s = e;
-        if (satMix > 0.0f)
+        if (tgt.satHQ)
+        {
+            // 2× sempre ligado em HQ (latência constante, já descontada no tempo)
+            const float g = satGain, mixv = satMix;
+            s = os[c].process (e, [g, mixv] (float u) { return u + mixv * (std::tanh (u * g) / g - u); });
+        }
+        else if (satMix > 0.0f)
         {
             const float g = satGain;
             const float t = sat[c].process (e * g) / g;
@@ -856,12 +1040,18 @@ private:
 
     float loopChain (int c, float x) noexcept
     {
-        switch (tgt.loopOrder)
+        const auto& perms = loopPermutations();
+        const auto& order = perms[(size_t) std::min ((int) perms.size() - 1, std::max (0, tgt.loopOrder))];
+        for (auto m : order)
         {
-            case 1:  x = stEq (c, x);   x = stTape (c, x); x = stDiff (c, x); x = stDisp (c, x); x = stGrit (c, x); break;
-            case 2:  x = stTape (c, x); x = stEq (c, x);   x = stDiff (c, x); x = stDisp (c, x); x = stGrit (c, x); break;
-            case 3:  x = stDiff (c, x); x = stDisp (c, x); x = stEq (c, x);   x = stTape (c, x); x = stGrit (c, x); break;
-            default: x = stGrit (c, x); x = stEq (c, x);   x = stDisp (c, x); x = stDiff (c, x); x = stTape (c, x); break;
+            switch (m)
+            {
+                case 0:  x = stGrit (c, x); break;
+                case 1:  x = stEq (c, x);   break;
+                case 2:  x = stDisp (c, x); break;
+                case 3:  x = stDiff (c, x); break;
+                default: x = stTape (c, x); break;
+            }
         }
         return x;
     }
@@ -922,6 +1112,43 @@ private:
     float envGate = 0, gateG = 1;  int gateHold = 0;
 
     static float gainToDbFast (float g) noexcept { return 8.6858896f * std::log (std::max (g, 1.0e-6f)); }
+
+    // ruído rosa (filtro de Paul Kellet, versão económica)
+    float hissNoise (int c) noexcept
+    {
+        const float w = hissRng[c].next();
+        auto& b = pink[c];
+        b[0] = 0.99765f * b[0] + w * 0.0990460f;
+        b[1] = 0.96300f * b[1] + w * 0.2965164f;
+        b[2] = 0.57000f * b[2] + w * 1.0526913f;
+        return (b[0] + b[1] + b[2] + w * 0.1848f) * 0.25f;
+    }
+
+    // Escuta: Normal · Só ecos · Delta (só o que o delay acrescenta, à mistura actual) ·
+    //         Mono · Telemóvel (mono 400 Hz–3,5 kHz, ligeira saturação) · Clube (graves em mono)
+    void monitorStage (float& oL, float& oR, float wL, float wR, float gw) noexcept
+    {
+        switch (tgt.monitor)
+        {
+            case Monitor::Normal: break;
+            case Monitor::WetSolo: oL = wL; oR = wR; break;
+            case Monitor::Delta:   oL = gw * wL; oR = gw * wR; break;
+            case Monitor::Mono:    { const float m = 0.5f * (oL + oR); oL = oR = m; } break;
+            case Monitor::Phone:
+            {
+                float m = 0.5f * (oL + oR);
+                m = phoneLP[0].process (phoneLP[1].process (phoneHP[0].process (phoneHP[1].process (m))));
+                m = std::tanh (1.6f * m) * 0.8f;
+                oL = oR = m;
+            } break;
+            case Monitor::Club:
+            {
+                const float lowL = clubLP[0].process (oL), lowR = clubLP2[0].process (oR);
+                const float lowM = 0.5f * (lowL + lowR) * 1.25f;
+                oL = (oL - lowL) + lowM; oR = (oR - lowR) + lowM;
+            } break;
+        }
+    }
 
     void emergencyReset() noexcept
     {

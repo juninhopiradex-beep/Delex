@@ -401,7 +401,29 @@ inline juce::StringPairArray parsePresetData (const char* data)
 }
 
 // Aplica dados: todos os parâmetros vão ao valor por defeito (excepto os mantidos), depois os definidos.
-inline void applyData (juce::AudioProcessorValueTreeState& s, const char* data, bool isStyle)
+// Parâmetros de escuta/fluxo de trabalho que nenhum preset altera
+inline bool presetIgnores (const juce::String& pid)
+{
+    return pid == id::bypass || pid == id::monitor || pid == id::key_src;
+}
+
+// Grupos que o utilizador pode bloquear ao trocar de preset (bit 0…3)
+enum LockGroup { LockTime = 1, LockMix = 2, LockDynamics = 4, LockEq = 8 };
+inline int lockGroupOf (const juce::String& pid)
+{
+    static const juce::StringArray timeIds { id::sync, id::div, id::time, id::r_ratio };
+    static const juce::StringArray mixIds  { id::mix, id::mix_law, id::wet_trim, id::out_trim, id::const_loud };
+    static const juce::StringArray eqIds   { id::low_cut, id::high_cut, id::cut_slope, id::peak_freq, id::peak_gain, id::peak_q,
+                                             id::compensate, id::ls_freq, id::ls_gain, id::hs_freq, id::hs_gain,
+                                             id::peak2_freq, id::peak2_gain, id::peak2_q };
+    if (timeIds.contains (pid)) return LockTime;
+    if (mixIds.contains (pid))  return LockMix;
+    if (pid.startsWith ("duck") || pid.startsWith ("gate")) return LockDynamics;
+    if (eqIds.contains (pid))   return LockEq;
+    return 0;
+}
+
+inline void applyData (juce::AudioProcessorValueTreeState& s, const char* data, bool isStyle, int lockMask = 0)
 {
     const auto kv = parsePresetData (data);
     for (auto* prm : s.processor.getParameters())
@@ -409,7 +431,8 @@ inline void applyData (juce::AudioProcessorValueTreeState& s, const char* data, 
         auto* r = dynamic_cast<juce::RangedAudioParameter*> (prm);
         if (r == nullptr) continue;
         const auto pid = r->getParameterID();
-        if (pid == id::bypass) continue;
+        if (presetIgnores (pid)) continue;
+        if ((lockGroupOf (pid) & lockMask) != 0) continue;
         if (isStyle && styleKeeps (pid)) continue;
         if (kv.containsKey (pid)) setParamFromText (*r, kv[pid]);
         else

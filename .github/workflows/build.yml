@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  VERSAO: "2.0.0"
+  VERSAO: "1.0.0"
   NOME: "DELEX by Piradex"
 
 jobs:
@@ -70,9 +70,9 @@ jobs:
           killall -9 AudioComponentRegistrar || true
           sleep 3
           auval -a | grep -i piradex || true
-          auval -v aufx PxDX Prdx
+          auval -v aumf PxDX Prdx
           softwareupdate --install-rosetta --agree-to-license || true
-          arch -x86_64 auval -v aufx PxDX Prdx
+          arch -x86_64 auval -v aumf PxDX Prdx
 
       - name: Validar com pluginval (VST3)
         continue-on-error: true

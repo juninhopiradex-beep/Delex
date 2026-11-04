@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(DelexByPiradex VERSION 2.0.0)
+project(DelexByPiradex VERSION 1.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -40,13 +40,13 @@ juce_add_plugin(Delex
     PRODUCT_NAME "DELEX by Piradex"
     DESCRIPTION "Delay espacial estereo"
     IS_SYNTH FALSE
-    NEEDS_MIDI_INPUT FALSE
+    NEEDS_MIDI_INPUT TRUE            # MIDI learn e pads de performance
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD FALSE
     VST3_CATEGORIES Fx Delay
-    AU_MAIN_TYPE kAudioUnitType_Effect
+    AU_MAIN_TYPE kAudioUnitType_MusicEffect   # efeito com entrada MIDI (aumf)
     AAX_CATEGORY Delay)   # AAX: SDK incluído na JUCE 8; o Pro Tools normal exige assinatura PACE
 
 juce_add_binary_data(DelexAssets SOURCES

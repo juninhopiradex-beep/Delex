@@ -24,7 +24,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return JucePlugin_Name; }
-    bool acceptsMidi() const override { return false; }
+    bool acceptsMidi() const override { return true; }   // MIDI learn e pads de performance
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 12.0; }
@@ -60,6 +60,19 @@ public:
     int  currentSlot() const { return slotIndex; }
     void copyToOtherSlot();
 
+    // MIDI learn (clique direito num controlo → aprender; mexe num controlador MIDI)
+    void startMidiLearn (const juce::String& pid);
+    void forgetMidi (const juce::String& pid);
+    int  midiCcFor (const juce::String& pid) const;
+    bool isLearning (const juce::String& pid) const;
+    std::atomic<int> lastLearnedCc { -1 };
+
+    // bloquear grupos de parâmetros ao trocar de preset (delex::LockGroup)
+    int  getLockMask() const { return lockMask; }
+    void setLockMask (int m);
+
+    std::atomic<bool> sidechainActive { false };
+
     // tap tempo (chamado pela interface)
     void tap();
     double tappedBpm() const { return tapBpm; }
@@ -79,10 +92,17 @@ public:
     bool  advancedView = false;
     int   advancedTab = 2;
 
-    static constexpr int kStateVersion = 2;
+    static constexpr int kStateVersion = 3;
 
 private:
     template <typename Sample> void processAny (juce::AudioBuffer<Sample>&);
+    void handleMidi (const juce::MidiBuffer&);
+    void handleMidiNote (const juce::MidiMessage&) {}
+    delex::Values valuesForChunk (double bpm);
+    static constexpr int kChunk = 32;
+    std::array<std::atomic<int>, 128> ccMap {};
+    std::atomic<int> learnTarget { -1 };
+    int lockMask = 0;
     void pushScope (const float* l, const float* r, int n);
 
     delex::Engine engine;

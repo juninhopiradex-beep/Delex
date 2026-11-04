@@ -6,7 +6,8 @@ using namespace delex;
 DelexProcessor::DelexProcessor()
     : AudioProcessor (BusesProperties()
                         .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                        .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)),
       apvts (*this, &undo, "DELEX", createLayout())
 {
     juce::PropertiesFile::Options o;
@@ -15,6 +16,8 @@ DelexProcessor::DelexProcessor()
     o.filenameSuffix = "settings";
     o.osxLibrarySubFolder = "Application Support";
     settings = std::make_unique<juce::PropertiesFile> (o);
+    lockMask = settings->getIntValue ("lockMask", 0);
+    for (auto& m : ccMap) m.store (-1);
     lic::License::get();   // carrega o estado da licença na thread de mensagens
 }
 
@@ -24,7 +27,7 @@ void DelexProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     currentSampleRate = sampleRate;
     (void) divisions(); (void) modDivisions();   // tabelas estáticas criadas fora da thread de áudio
     engine.prepare (sampleRate, samplesPerBlock);
-    work.setSize (2, juce::jmax (1, samplesPerBlock), false, true, false);
+    work.setSize (4, juce::jmax (1, samplesPerBlock), false, true, false);
     scopeFifo.reset();
 }
 
@@ -38,11 +41,63 @@ bool DelexProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
     const auto in = layouts.getMainInputChannelSet(), out = layouts.getMainOutputChannelSet();
     if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo()) return false;
     if (in != juce::AudioChannelSet::mono() && in != juce::AudioChannelSet::stereo()) return false;
+    if (layouts.inputBuses.size() > 1)   // sidechain: desligado, mono ou estéreo
+    {
+        const auto sc = layouts.getChannelSet (true, 1);
+        if (! sc.isDisabled() && sc != juce::AudioChannelSet::mono() && sc != juce::AudioChannelSet::stereo()) return false;
+    }
     return in.size() <= out.size();   // mono→mono, mono→estéreo, estéreo→estéreo
 }
 
-void DelexProcessor::processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&)  { processAny (b); }
-void DelexProcessor::processBlock (juce::AudioBuffer<double>& b, juce::MidiBuffer&) { processAny (b); }
+void DelexProcessor::processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer& m)  { handleMidi (m); processAny (b); }
+void DelexProcessor::processBlock (juce::AudioBuffer<double>& b, juce::MidiBuffer& m) { handleMidi (m); processAny (b); }
+
+// ---------------------------------------------------------------------------- MIDI learn
+void DelexProcessor::handleMidi (const juce::MidiBuffer& midi)
+{
+    for (const auto meta : midi)
+    {
+        const auto msg = meta.getMessage();
+        if (msg.isController())
+        {
+            const int cc = msg.getControllerNumber();
+            const int learn = learnTarget.load();
+            if (learn >= 0)
+            {
+                for (auto& m : ccMap) if (m.load() == learn) m.store (-1);   // um parâmetro ↔ um CC
+                ccMap[(size_t) cc].store (learn);
+                learnTarget.store (-1);
+                lastLearnedCc.store (cc);
+            }
+            const int target = ccMap[(size_t) cc].load();
+            if (target >= 0)
+                if (auto* prm = raw.parameter (target))
+                    prm->setValueNotifyingHost ((float) msg.getControllerValue() / 127.0f);
+        }
+        handleMidiNote (msg);
+    }
+}
+
+void DelexProcessor::startMidiLearn (const juce::String& pid) { learnTarget.store (delex::RawParams::indexOf (pid)); }
+void DelexProcessor::forgetMidi (const juce::String& pid)
+{
+    const int idx = delex::RawParams::indexOf (pid);
+    for (auto& m : ccMap) if (m.load() == idx) m.store (-1);
+}
+int DelexProcessor::midiCcFor (const juce::String& pid) const
+{
+    const int idx = delex::RawParams::indexOf (pid);
+    for (size_t c = 0; c < ccMap.size(); ++c) if (ccMap[c].load() == idx) return (int) c;
+    return -1;
+}
+bool DelexProcessor::isLearning (const juce::String& pid) const { return learnTarget.load() == delex::RawParams::indexOf (pid); }
+
+void DelexProcessor::setLockMask (int m)
+{
+    lockMask = m;
+    settings->setValue ("lockMask", m);
+    settings->saveIfNeeded();
+}
 
 template <typename Sample>
 void DelexProcessor::processAny (juce::AudioBuffer<Sample>& buffer)
@@ -50,14 +105,16 @@ void DelexProcessor::processAny (juce::AudioBuffer<Sample>& buffer)
     juce::ScopedNoDenormals noDenormals;
     const int n = buffer.getNumSamples();
     if (n <= 0) return;
-    const int numIn = getTotalNumInputChannels(), numOut = getTotalNumOutputChannels();
+    auto mainIn = getBusBuffer (buffer, true, 0);
+    const int numIn = mainIn.getNumChannels();
+    const int numOut = getMainBusNumOutputChannels();
 
-    if (work.getNumSamples() < n) work.setSize (2, n, false, false, true);
+    if (work.getNumSamples() < n) work.setSize (4, n, false, false, true);
     float* L = work.getWritePointer (0);
     float* R = work.getWritePointer (1);
 
-    const Sample* inL = numIn > 0 ? buffer.getReadPointer (0) : nullptr;
-    const Sample* inR = numIn > 1 ? buffer.getReadPointer (1) : inL;
+    const Sample* inL = numIn > 0 ? mainIn.getReadPointer (0) : nullptr;
+    const Sample* inR = numIn > 1 ? mainIn.getReadPointer (1) : inL;
     float pkIn[2] { 0, 0 };
     for (int i = 0; i < n; ++i)
     {
@@ -88,9 +145,35 @@ void DelexProcessor::processAny (juce::AudioBuffer<Sample>& buffer)
     if (! hasBpm && tapBpm > 0.0) bpm = tapBpm;
     hostBpm = bpm; hostHasBpm = hasBpm;
 
-    const Values v = raw.load();
-    engine.setParams (toEngine (v, bpm, getSampleRate()));
-    engine.process (L, R, n);
+    // chave de sidechain (ducker, gate…): só se escolhida e ligada no DAW
+    const float* keyL = nullptr; const float* keyR = nullptr;
+    {
+        const Values v0 = raw.load();
+        const bool wantSc = v0.key_src > 0.5f;
+        bool scConnected = false;
+        if (wantSc && getBusCount (true) > 1 && getBus (true, 1) != nullptr && getBus (true, 1)->isEnabled())
+        {
+            auto sc = getBusBuffer (buffer, true, 1);
+            if (sc.getNumChannels() > 0)
+            {
+                float* kL = work.getWritePointer (2); float* kR = work.getWritePointer (3);
+                const Sample* sL = sc.getReadPointer (0);
+                const Sample* sR = sc.getNumChannels() > 1 ? sc.getReadPointer (1) : sL;
+                for (int i = 0; i < n; ++i) { kL[i] = (float) sL[i]; kR[i] = (float) sR[i]; }
+                keyL = kL; keyR = kR; scConnected = true;
+            }
+        }
+        sidechainActive = scConnected;
+    }
+
+    // processa em pedaços curtos: valores (e, nas próximas fases, modulação) actualizados a cada pedaço
+    for (int pos = 0; pos < n; pos += kChunk)
+    {
+        const int len = juce::jmin (kChunk, n - pos);
+        const Values v = valuesForChunk (bpm);
+        engine.setParams (toEngine (v, bpm, getSampleRate()));
+        engine.process (L + pos, R + pos, len, keyL != nullptr ? keyL + pos : nullptr, keyR != nullptr ? keyR + pos : nullptr);
+    }
 
     // medidores
     float pkOut[2] { 0, 0 };
@@ -115,18 +198,25 @@ void DelexProcessor::processAny (juce::AudioBuffer<Sample>& buffer)
     pushScope (L, R, n);
 
     // saída
+    auto mainOut = getBusBuffer (buffer, false, 0);
     if (numOut == 1)
     {
-        auto* o = buffer.getWritePointer (0);
+        auto* o = mainOut.getWritePointer (0);
         for (int i = 0; i < n; ++i) o[i] = (Sample) (0.5f * (L[i] + R[i]));
     }
     else if (numOut >= 2)
     {
-        auto* oL = buffer.getWritePointer (0);
-        auto* oR = buffer.getWritePointer (1);
+        auto* oL = mainOut.getWritePointer (0);
+        auto* oR = mainOut.getWritePointer (1);
         for (int i = 0; i < n; ++i) { oL[i] = (Sample) L[i]; oR[i] = (Sample) R[i]; }
-        for (int c = 2; c < buffer.getNumChannels(); ++c) buffer.clear (c, 0, n);
     }
+    for (int c = numOut; c < buffer.getNumChannels(); ++c) buffer.clear (c, 0, n);
+}
+
+// Valores a usar num pedaço de áudio (ponto de entrada para morph, modulação e pads)
+delex::Values DelexProcessor::valuesForChunk (double /*bpm*/)
+{
+    return raw.load();
 }
 
 void DelexProcessor::pushScope (const float* l, const float* r, int n)
@@ -158,7 +248,7 @@ void DelexProcessor::loadFactoryPreset (int index)
     const auto& p = factoryPresets();
     if (! juce::isPositiveAndBelow (index, (int) p.size())) return;
     undo.beginNewTransaction();
-    applyData (apvts, p[(size_t) index].data, false);
+    applyData (apvts, p[(size_t) index].data, false, lockMask);
     currentPreset = index;
     presetName = juce::String::fromUTF8 (p[(size_t) index].name);
     updateHostDisplay (ChangeDetails().withProgramChanged (true));
@@ -169,7 +259,7 @@ void DelexProcessor::applyStyle (int index)
     const auto& s = styles();
     if (! juce::isPositiveAndBelow (index, (int) s.size())) return;
     undo.beginNewTransaction();
-    applyData (apvts, s[(size_t) index].data, true);
+    applyData (apvts, s[(size_t) index].data, true, lockMask);
 }
 
 juce::File DelexProcessor::userPresetFolder() const
@@ -212,7 +302,7 @@ void DelexProcessor::loadUserPreset (const juce::File& f)
             for (auto* prm : getParameters())
                 if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (prm))
                 {
-                    if (r->getParameterID() == id::bypass) continue;
+                    if (presetIgnores (r->getParameterID()) || (lockGroupOf (r->getParameterID()) & lockMask) != 0) continue;
                     auto child = st.getChildWithProperty ("id", r->getParameterID());
                     const float val = child.isValid() ? (float) child.getProperty ("value") : r->convertFrom0to1 (r->getDefaultValue());
                     r->beginChangeGesture(); r->setValueNotifyingHost (r->convertTo0to1 (val)); r->endChangeGesture();
@@ -289,6 +379,16 @@ void DelexProcessor::getStateInformation (juce::MemoryBlock& destData)
     root.setProperty ("tab", advancedTab, nullptr);
     root.setProperty ("slot", slotIndex, nullptr);
     root.appendChild (apvts.copyState(), nullptr);
+    {
+        juce::ValueTree midi ("MIDI");
+        for (size_t c = 0; c < ccMap.size(); ++c)
+            if (const int t = ccMap[c].load(); t >= 0)
+            {
+                juce::ValueTree m ("CC"); m.setProperty ("cc", (int) c, nullptr); m.setProperty ("param", juce::String (delex::paramIds()[(size_t) t]), nullptr);
+                midi.appendChild (m, nullptr);
+            }
+        root.appendChild (midi, nullptr);
+    }
     for (int s = 0; s < 2; ++s)
         if (slots[s].isValid() && s != slotIndex)
         {
@@ -316,6 +416,13 @@ void DelexProcessor::setStateInformation (const void* data, int sizeInBytes)
         advancedTab = root.getProperty ("tab", 2);
         slotIndex = juce::jlimit (0, 1, (int) root.getProperty ("slot", 0));
         slots[0] = slots[1] = {};
+        for (auto& m : ccMap) m.store (-1);
+        if (auto midi = root.getChildWithName ("MIDI"); midi.isValid())
+            for (auto m : midi)
+            {
+                const int cc = m.getProperty ("cc", -1), idx = delex::RawParams::indexOf (m.getProperty ("param").toString());
+                if (juce::isPositiveAndBelow (cc, 128) && idx >= 0) ccMap[(size_t) cc].store (idx);
+            }
         for (auto c : root)
             if (c.hasType ("SLOT") && c.getNumChildren() > 0)
                 slots[juce::jlimit (0, 1, (int) c.getProperty ("index"))] = c.getChild (0).createCopy();

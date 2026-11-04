@@ -276,6 +276,137 @@ int main()
         std::printf ("[ok] mapa de ecos: %d ecos, 1.º à esquerda, 2.º à direita\n", n);
     }
 
+    // ===================== v1.0 — vaga A =====================
+    // A1) sidechain: o ducker reage à chave, não à própria entrada
+    {
+        Params p = wetOnly(); p.duckOn = true; p.duckThreshDb = -30; p.duckAmountDb = 12; p.feedback = 0.3f;
+        Engine e; e.prepare (SR, 256); e.setParams (p);
+        std::vector<float> l (256), r (256), kl (256, 0.0f), kr (256, 0.0f);
+        for (int b = 0; b < 200; ++b)   // entrada alta, chave em silêncio
+        {
+            for (int i = 0; i < 256; ++i) l[(size_t) i] = r[(size_t) i] = 0.5f * std::sin (0.05f * (float) (b * 256 + i));
+            e.process (l.data(), r.data(), 256, kl.data(), kr.data());
+        }
+        const float noDuck = e.duckReductionDb();
+        for (int b = 0; b < 200; ++b)   // agora a chave toca
+        {
+            for (int i = 0; i < 256; ++i) { l[(size_t) i] = r[(size_t) i] = 0.5f * std::sin (0.05f * (float) (b * 256 + i)); kl[(size_t) i] = kr[(size_t) i] = 0.5f; }
+            e.process (l.data(), r.data(), 256, kl.data(), kr.data());
+        }
+        CHECK (noDuck < 0.5f && std::fabs (e.duckReductionDb() - 12.0f) < 0.5f, "sidechain: %f / %f", noDuck, e.duckReductionDb());
+        std::printf ("[ok] sidechain: chave em silêncio %.2f dB · chave a tocar %.2f dB\n", noDuck, e.duckReductionDb());
+    }
+
+    // A2) escuta: Só ecos sem seco · Delta = ecos à mistura actual · Mono L=R
+    {
+        auto runMon = [] (Monitor m, float mixv, std::vector<float>& L, std::vector<float>& R)
+        {
+            Params p; p.mix = mixv; p.feedback = 0.0f; p.timeMsL = p.timeMsR = 100; p.monitor = m; p.lowCutHz = 10; p.highCutHz = 22000;
+            Run r (p);
+            r.go (9600, [] (int i, float& l, float& rr) { l = (i == 0) ? 1.0f : 0.0f; rr = (i == 0) ? 0.5f : 0.0f; });
+            L = r.L; R = r.R;
+        };
+        std::vector<float> L, R;
+        runMon (Monitor::WetSolo, 0.2f, L, R);
+        const bool wetOk = std::fabs (L[0]) < 1e-6f && peakAbs (L, 4700, 4900) > 0.6f;
+        runMon (Monitor::Delta, 0.5f, L, R);
+        const float g = std::sin (0.25f * kPi);
+        const bool deltaOk = std::fabs (L[0]) < 1e-6f && std::fabs (peakAbs (L, 4700, 4900) - g * 0.8f) < 0.08f;
+        runMon (Monitor::Mono, 0.3f, L, R);
+        double md = 0; for (size_t i = 0; i < L.size(); ++i) md = std::max (md, (double) std::fabs (L[i] - R[i]));
+        CHECK (wetOk && deltaOk && md < 1e-6, "escuta: wet %d delta %d mono %g", (int) wetOk, (int) deltaOk, md);
+        std::printf ("[ok] escuta: Só ecos sem seco · Delta = ecos à mistura · Mono L=R\n");
+    }
+
+    // A3) volume constante: a energia dos ecos quase não muda entre feedback 20 % e 85 %
+    {
+        auto tailEnergy = [] (float fb, bool constLoud)
+        {
+            Params p = wetOnly(); p.feedback = fb; p.timeMsL = p.timeMsR = 60; p.constLoudness = constLoud; p.lowCutHz = 10; p.highCutHz = 22000;
+            Run r (p);
+            r.go ((int) SR * 4, [] (int i, float& l, float& rr) { l = rr = (i < 480) ? 0.5f * std::sin (0.07f * (float) i) : 0.0f; });
+            return energy (r.L, 0, (int) r.L.size()) + energy (r.R, 0, (int) r.R.size());
+        };
+        const double off = 10 * std::log10 (tailEnergy (0.85f, false) / tailEnergy (0.2f, false));
+        const double on  = 10 * std::log10 (tailEnergy (0.85f, true)  / tailEnergy (0.2f, true));
+        CHECK (std::fabs (on) < 2.5 && off > 5.0, "volume constante: sem %f dB, com %f dB", off, on);
+        std::printf ("[ok] volume constante: fb 20%%→85%% muda %.1f dB sem / %.1f dB com\n", off, on);
+    }
+
+    // A4) shelves e 2.º pico: +6 dB no low shelf aumentam os graves do eco
+    {
+        auto lowEnergy = [] (float lsDb)
+        {
+            Params p = wetOnly(); p.feedback = 0; p.timeMsL = p.timeMsR = 20; p.lsHz = 200; p.lsDb = lsDb; p.lowCutHz = 10; p.highCutHz = 22000;
+            Run r (p);
+            r.go (48000, [] (int i, float& l, float& rr) { l = rr = 0.3f * std::sin (kTwoPi * 80.0f * (float) i / (float) SR); });
+            return energy (r.L, 24000, 48000);
+        };
+        const double d = 10 * std::log10 (lowEnergy (6.0f) / lowEnergy (0.0f));
+        CHECK (d > 4.5 && d < 7.0, "low shelf +6 dB deu %f dB", d);
+        std::printf ("[ok] low shelf +6 dB a 80 Hz: %+.2f dB\n", d);
+    }
+
+    // A5) ordem livre do loop: 120 permutações únicas, as 4 antigas primeiro
+    {
+        const auto& pr = loopPermutations();
+        bool uniq = true;
+        for (size_t a = 0; a < pr.size(); ++a) for (size_t b = a + 1; b < pr.size(); ++b) if (pr[a] == pr[b]) uniq = false;
+        CHECK (pr.size() == 120 && uniq && pr[1] == (std::array<uint8_t, 5> { 1, 4, 3, 2, 0 }), "permutações");
+        // cada ordem processa sem problemas
+        int bad = 0;
+        for (int k = 0; k < 120; k += 7)
+        {
+            Params p = wetOnly(); p.loopOrder = k; p.feedback = 0.9f; p.tapeDrive = 0.6f; p.diffAmount = 0.5f; p.gritBits = 8;
+            Run r (p); r.go (24000, [] (int i, float& l, float& rr) { l = rr = (i < 200) ? 0.5f : 0.0f; });
+            if (! allFinite (r.L) || peakAbs (r.L) > 3.0f) ++bad;
+        }
+        CHECK (bad == 0, "ordens do loop instáveis: %d", bad);
+        std::printf ("[ok] ordem do loop: %zu permutações únicas, estáveis\n", pr.size());
+    }
+
+    // A6) saturação HQ (2×): latência medida = constante usada; eco a tempo; menos aliasing
+    {
+        Oversampler2x o; int best = 0; float mx = 0;
+        for (int n = 0; n < 80; ++n) { const float y = o.process (n == 0 ? 1.0f : 0.0f, [] (float u) { return u; }); if (std::fabs (y) > mx) { mx = std::fabs (y); best = n; } }
+        CHECK (best == Oversampler2x::kLatency, "latência do oversampler %d (constante %d)", best, Oversampler2x::kLatency);
+        auto echoPos = [] (bool hq)
+        {
+            Params p = wetOnly(); p.satHQ = hq; p.tapeDrive = 0; p.feedback = 0; p.timeMsL = p.timeMsR = 100; p.lowCutHz = 10; p.highCutHz = 22000;
+            Run r (p); r.go (14400, [] (int i, float& l, float& rr) { l = rr = (i == 0) ? 0.5f : 0.0f; });
+            return argmaxAbs (r.L, 10, 14000);
+        };
+        const int ia = echoPos (false), ib = echoPos (true);
+        CHECK (std::abs (ia - ib) <= 1, "HQ desloca o eco: %d vs %d", ia, ib);
+        // aliasing: seno de 9,1 kHz muito saturado; o 5.º harmónico (45,5 kHz) dobra para 2,5 kHz a 48 kHz
+        auto aliasDb = [] (bool hq)
+        {
+            Params p = wetOnly(); p.satHQ = hq; p.tapeDrive = 1.0f; p.feedback = 0; p.timeMsL = p.timeMsR = 10; p.lowCutHz = 10; p.highCutHz = 22000; p.tapeWarmth = 0;
+            Run r (p);
+            r.go (48000, [] (int i, float& l, float& rr) { l = rr = 0.9f * std::sin (kTwoPi * 9100.0f * (float) i / (float) SR); });
+            auto goertzel = [&] (double f)
+            {
+                double s1 = 0, s2 = 0; const double c = 2 * std::cos (2 * 3.14159265358979 * f / SR);
+                for (size_t i = 24000; i < r.L.size(); ++i) { const double s0 = r.L[i] + c * s1 - s2; s2 = s1; s1 = s0; }
+                return std::sqrt (s1 * s1 + s2 * s2 - c * s1 * s2) / 12000.0;
+            };
+            return 20 * std::log10 (goertzel (2500.0) / goertzel (9100.0) + 1e-12);
+        };
+        const double aStd = aliasDb (false), aHq = aliasDb (true);
+        CHECK (aHq < aStd - 6.0, "HQ não reduziu o aliasing (%f vs %f dB)", aHq, aStd);
+        std::printf ("[ok] saturação HQ: latência %d · eco na amostra %d (sem HQ %d) · alias a 2,5 kHz %.1f dB → %.1f dB\n", best, ib, ia, aStd, aHq);
+    }
+
+    // A7) hiss: nível no sinal com efeito dentro do esperado
+    {
+        Params p = wetOnly(); p.hiss = 1.0f; p.feedback = 0;
+        Run r (p); r.go (48000, [] (int, float& l, float& rr) { l = rr = 0; });
+        const double rms = std::sqrt (energy (r.L, 0, 48000) / 48000.0);
+        const double db = 20 * std::log10 (rms + 1e-12);
+        CHECK (db > -62 && db < -44, "hiss a %f dBFS", db);
+        std::printf ("[ok] hiss no máximo: %.1f dBFS RMS\n", db);
+    }
+
     // 14) Custo de CPU com todos os módulos activos
     {
         Params p; p.feedback = 0.7f; p.modDepthCents = 20; p.wow = 0.5f; p.diffAmount = 0.6f; p.dispSpreadMs = 15;

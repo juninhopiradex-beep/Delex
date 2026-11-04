@@ -151,10 +151,11 @@ public:
         duckBtn.setBounds (118, fy, 70, 32);
         grBar.setBounds (194, fy, 110, 32);
         bypassBtn.setBounds (310, fy, 84, 32);
+        monitorBox->setBounds (402, fy + 2, 112, 28);
         outValue.setBounds (getWidth() - 140, fy, 70, 32);
-        outSlider.setBounds (outValue.getX() - 132, fy, 126, 32);
-        mixValue.setBounds (outSlider.getX() - 128, fy, 52, 32);
-        mixSlider.setBounds (mixValue.getX() - 104, fy, 100, 32);
+        outSlider.setBounds (outValue.getX() - 100, fy, 94, 32);
+        mixValue.setBounds (outSlider.getX() - 118, fy, 52, 32);
+        mixSlider.setBounds (mixValue.getX() - 86, fy, 82, 32);
 
         if (browser != nullptr) browser->setBounds (getLocalBounds());
         login.setBounds (getLocalBounds());
@@ -342,6 +343,7 @@ private:
     ToggleChip& duckBtn = *(duckBtn_ = std::make_unique<ToggleChip> (s, id::duck, "DUCK", col::coral, tr ("Baixa os ecos enquanto a fonte toca e solta-os nas pausas (ajustes em UTILITIES)", "Lowers the echoes while the source plays and releases them in the gaps (settings in UTILITIES)")));
     ToggleChip& bypassBtn = *(bypassBtn_ = std::make_unique<ToggleChip> (s, id::bypass, "BYPASS", col::soft, tr ("Desliga o efeito sem cliques", "Turns the effect off without clicks")));
     GrBar grBar { proc };
+    std::unique_ptr<ChoiceBox> monitorBox;
     FineSlider outSlider, mixSlider;
     juce::Label outValue, mixValue;
     std::unique_ptr<APVTS::SliderAttachment> outAtt, mixAtt;
@@ -349,6 +351,11 @@ private:
     void buildBottom()
     {
         for (auto* b : std::initializer_list<juce::Component*> { &freezeBtn, &duckBtn, &grBar, &bypassBtn }) addAndMakeVisible (b);
+        monitorBox = std::make_unique<ChoiceBox> (s, id::monitor,
+            tr ("Escuta: Normal · Só Wet (só os ecos) · Delta (só o que o delay acrescenta) · Mono · Telemóvel (banda 300 Hz–4 kHz) · Club (graves em mono, sem agudos). Não é guardado nos presets.",
+                "Listen: Normal · Wet Solo (echoes only) · Delta (only what the delay adds) · Mono · Phone (300 Hz–4 kHz band) · Club (mono lows, no highs). Not saved in presets."),
+            juce::StringArray { tr ("ESCUTA: NORMAL", "LISTEN: NORMAL"), tr ("SÓ WET", "WET SOLO"), "DELTA", "MONO", tr ("TELEMÓVEL", "PHONE"), "CLUB" });
+        addAndMakeVisible (*monitorBox);
         for (auto* sl : { &outSlider, &mixSlider })
         {
             sl->setSliderStyle (juce::Slider::LinearHorizontal);
@@ -526,49 +533,81 @@ private:
         auto& pf = p.add (knob (s, id::peak_freq, "PEAK FREQ", "", col::coral, K::Small, false, tr ("Frequência do pico/vale no loop", "Frequency of the peak/dip in the loop")));
         auto& pg = p.add (knob (s, id::peak_gain, "GAIN", "", col::coral, K::Small, true, tr ("Ganho do pico (±18 dB). Ganhos positivos acumulam-se a cada repetição", "Peak gain (±18 dB). Positive gains build up on every repeat")));
         auto& pq = p.add (knob (s, id::peak_q, "Q", "", col::coral, K::Small, false, tr ("Largura de banda do pico (mais alto = mais estreito)", "Peak bandwidth (higher = narrower)")));
-        auto& cp = p.add (knob (s, id::compensate, "COMPENSATE", "", col::text, K::Small, false, tr ("Reduz o feedback na proporção do ganho do pico, para o loop não disparar", "Reduces the feedback in proportion to the peak gain, so the loop doesn't run away")));
+        auto& p2f = p.add (knob (s, id::peak2_freq, "PEAK 2", "", col::gold, K::Small, false, tr ("Frequência do segundo pico (ex.: tirar a nasalidade de uma voz nos ecos)", "Frequency of the second peak (e.g. remove nasal tone from vocal echoes)")));
+        auto& p2g = p.add (knob (s, id::peak2_gain, "GAIN", "", col::gold, K::Small, true, tr ("Ganho do segundo pico (±18 dB)", "Second peak gain (±18 dB)")));
+        auto& p2q = p.add (knob (s, id::peak2_q, "Q", "", col::gold, K::Small, false, tr ("Largura do segundo pico", "Second peak bandwidth")));
+        auto& lsf = p.add (knob (s, id::ls_freq, "LOW SHELF", "", col::violet, K::Small, false, tr ("Frequência do shelf de graves no loop", "Low shelf frequency in the loop")));
+        auto& lsg = p.add (knob (s, id::ls_gain, "GAIN", "", col::violet, K::Small, true, tr ("Ganho do shelf de graves (±18 dB) — mais suave que o LOW CUT", "Low shelf gain (±18 dB) — gentler than LOW CUT")));
+        auto& hsf = p.add (knob (s, id::hs_freq, "HIGH SHELF", "", col::violet, K::Small, false, tr ("Frequência do shelf de agudos no loop", "High shelf frequency in the loop")));
+        auto& hsg = p.add (knob (s, id::hs_gain, "GAIN", "", col::violet, K::Small, true, tr ("Ganho do shelf de agudos (±18 dB): escurece os ecos sem os tornar abafados", "High shelf gain (±18 dB): darkens the echoes without muffling them")));
+        auto& cp = p.add (knob (s, id::compensate, "COMPENSATE", "", col::text, K::Small, false, tr ("Reduz o feedback na proporção do maior ganho positivo, para o loop não disparar", "Reduces the feedback in proportion to the largest positive gain, so the loop doesn't run away")));
         auto& hc = p.add (knob (s, id::high_cut, "HIGH CUT", "", col::cyan, K::Small, false, tr ("Corta agudos dentro do loop: ecos mais escuros a cada repetição", "Cuts highs inside the loop: darker echoes on every repeat")));
-        auto& order = p.add (std::make_unique<ChoiceBox> (s, id::loop_order, tr ("Ordem dos módulos dentro do loop de feedback", "Order of the modules inside the feedback loop")));
+        auto& order = p.add (std::make_unique<LoopOrderList> (s));
+        loopOrderList = &order;
+
+        // selector de banda: mostra os knobs do pico 1, do pico 2 ou dos shelves
+        const juce::StringArray bandNames { tr ("PICO 1", "PEAK 1"), tr ("PICO 2", "PEAK 2"), "SHELVES" };
+        const juce::Colour bandCols[] = { col::coral, col::gold, col::violet };
+        for (int i = 0; i < 3; ++i)
+        {
+            auto* b = eqBandBtns.add (new juce::TextButton (bandNames[i]));
+            b->setColour (juce::TextButton::buttonOnColourId, bandCols[i]);
+            b->getProperties().set ("fontH", 11.0f);
+            b->getProperties().set ("radius", 0.0f);
+            b->setTooltip (tr ("Escolhe que banda mostrar nos knobs (os nós do gráfico funcionam sempre)", "Choose which band the knobs show (the graph nodes always work)"));
+            b->onClick = [this, i] { selectEqBand (i); };
+            p.addAndMakeVisible (b);
+        }
+        eqBandKnobs[0] = { &pf, &pg, &pq };
+        eqBandKnobs[1] = { &p2f, &p2g, &p2q };
+        eqBandKnobs[2] = { &lsf, &lsg, &hsf, &hsg };
+        disp.onNodeSelected = [this] (int n) { selectEqBand (n == 1 ? 0 : (n == 3 ? 1 : 2)); };
+
         p.extraPaint = [this, &p] (juce::Graphics& g)
         {
-            auto r = p.sections[1].r.toFloat().reduced (12.0f).withTrimmedTop (62.0f);
-            const int ord = (int) std::lround (proc.raw.load().loop_order);
-            static const char* orders[4][5] = { { "Digital Grit", "Feedback EQ", "Dispersion", "Diffusion", "Tape" },
-                                                { "Feedback EQ", "Tape", "Diffusion", "Dispersion", "Digital Grit" },
-                                                { "Tape", "Feedback EQ", "Diffusion", "Dispersion", "Digital Grit" },
-                                                { "Diffusion", "Dispersion", "Feedback EQ", "Tape", "Digital Grit" } };
-            auto colourOf = [] (const String& n)
-            {
-                if (n == "Digital Grit") return col::blue;
-                if (n == "Feedback EQ") return col::coral;
-                if (n == "Dispersion") return col::green;
-                if (n == "Diffusion") return col::violet;
-                return col::gold;
-            };
-            for (int i = 0; i < 5; ++i)
-            {
-                const String n = orders[juce::jlimit (0, 3, ord)][i];
-                auto b = r.removeFromTop (28.0f); r.removeFromTop (5.0f);
-                const bool me = n == "Feedback EQ";
-                g.setColour (me ? col::coralDeep : col::panel2); g.fillRoundedRectangle (b, 6.0f);
-                g.setColour (me ? col::coral : col::line2); g.drawRoundedRectangle (b.reduced (0.5f), 6.0f, 1.0f);
-                g.setColour (colourOf (n)); g.fillRoundedRectangle (juce::Rectangle<float> (8, 8).withCentre ({ b.getX() + 14, b.getCentreY() }), 2.0f);
-                label (g, String (i + 1) + ".  " + n, b.withTrimmedLeft (26.0f), 13.5f, W::Semi, col::text, juce::Justification::centredLeft, 0.0f);
-            }
-            r.removeFromTop (6.0f);
+            auto r = p.sections[1].r.toFloat().reduced (12.0f).withTrimmedTop (196.0f);
             g.setColour (col::muted); g.setFont (font (12.5f));
             const float lim = proc.loopLimit.load();
-            g.drawFittedText (tr ("Limitador suave e bloqueio DC sempre activos no loop.", "Soft limiter and DC blocking always active in the loop.") + (lim < -0.05f ? tr ("\nA limitar agora: ", "\nLimiting now: ") + String (lim, 1) + " dB" : String()),
-                              r.toNearestInt(), juce::Justification::topLeft, 3);
+            g.drawFittedText (tr ("Arrasta para reordenar (120 ordens possíveis, automatizável). Limitador suave e bloqueio DC sempre activos no loop.",
+                                  "Drag to reorder (120 possible orders, automatable). Soft limiter and DC blocking always active in the loop.")
+                              + (lim < -0.05f ? tr ("\nA limitar agora: ", "\nLimiting now: ") + String (lim, 1) + " dB" : String()),
+                              r.toNearestInt(), juce::Justification::topLeft, 5);
         };
-        p.layout = [&p, &disp, &lc, &slope, &pf, &pg, &pq, &cp, &hc, &order]
+        p.layout = [this, &p, &disp, &lc, &slope, &cp, &hc, &order]
         {
             p.sections = { { { 0, 0, 0, 0 }, "" }, { { 712, 0, 252, 392 }, tr ("ORDEM DO LOOP", "LOOP ORDER") } };
-            disp.setBounds (0, 0, 700, 236);
-            row ({ &lc, &slope, &pf, &pg, &pq, &cp, &hc }, { 0, 250, 700, 132 });
-            slope.setBounds (slope.getBounds().withSizeKeepingCentre (76, 84));
-            order.setBounds (724, 30, 228, 28);
+            disp.setBounds (0, 0, 700, 226);
+            lc.setBounds (0, 258, 92, 130);
+            slope.setBounds (juce::Rectangle<int> (92, 258, 80, 130).withSizeKeepingCentre (76, 84));
+            int x = 186;
+            for (auto* b : eqBandBtns) { b->setBounds (x, 234, 112, 22); x += 112; }
+            for (int band = 0; band < 3; ++band)
+            {
+                const auto& ks = eqBandKnobs[band];
+                juce::Rectangle<int> area (176, 258, 352, 130);
+                const int w = area.getWidth() / (int) ks.size();
+                for (auto* k : ks) k->setBounds (area.removeFromLeft (w));
+            }
+            cp.setBounds (530, 258, 86, 130);
+            hc.setBounds (614, 258, 86, 130);
+            order.setBounds (724, 32, 228, 162);
+            selectEqBand (eqBand);
         };
+    }
+
+    juce::OwnedArray<juce::TextButton> eqBandBtns;
+    std::array<std::vector<Knob*>, 3> eqBandKnobs;
+    int eqBand = 0;
+    LoopOrderList* loopOrderList = nullptr;
+
+    void selectEqBand (int band)
+    {
+        eqBand = juce::jlimit (0, 2, band);
+        for (int i = 0; i < 3; ++i)
+        {
+            if (i < eqBandBtns.size()) eqBandBtns[i]->setToggleState (i == eqBand, juce::dontSendNotification);
+            for (auto* k : eqBandKnobs[i]) k->setVisible (i == eqBand);
+        }
     }
 
     void buildMotion (Page& p)
@@ -607,12 +646,23 @@ private:
         auto& gm = p.add (knob (s, id::grit_mix, "GRIT MIX", "", col::blue, K::Small, false, tr ("Mistura paralela do grit", "Parallel grit mix")));
         auto& ch = p.add (knob (s, id::character, "CHARACTER", "", col::coral, K::Small, true, tr ("Macro: fita (direita) ↔ digital (esquerda)", "Macro: tape (right) ↔ digital (left)")));
         auto& pd = p.add (knob (s, id::pre_drive, "PRE-DRIVE", "", col::text, K::Small, true, tr ("Ganho antes do delay (empurra a saturação)", "Gain before the delay (pushes the saturation)")));
-        p.layout = [&p, &wa, &dr, &bi, &ra, &ji, &gm, &ch, &pd]
+        auto& hi = p.add (knob (s, id::hiss, "HISS", "", col::gold, K::Small, false, tr ("Ruído de fita (rosa) só nos ecos — dá vida a ecos muito limpos", "Tape noise (pink) on the echoes only — brings very clean echoes to life")));
+        auto& hq = p.add (std::make_unique<ToggleChip> (s, id::sat_hq, "HQ 2x", col::gold, tr ("Saturação com oversampling 2× (menos aliasing em drive alto; +14 amostras compensadas no tempo)", "Saturation with 2× oversampling (less aliasing at high drive; +14 samples compensated in the time)")));
+        p.extraPaint = [&p] (juce::Graphics& g)
         {
-            p.sections = { { { 0, 0, 300, 190 }, "TAPE SATURATION" }, { { 312, 0, 652, 190 }, "DIGITAL GRIT" }, { { 0, 202, 964, 190 }, tr ("CARÁCTER E ENTRADA", "CHARACTER AND INPUT") } };
+            auto r = p.sections[2].r.toFloat().withTrimmedLeft (480.0f).reduced (14.0f).withTrimmedTop (76.0f).withWidth (420.0f);
+            g.setColour (col::muted); g.setFont (font (12.5f));
+            g.drawFittedText (tr ("HQ 2x: a saturação de fita corre a dobrar a taxa de amostragem. Usa em drive alto ou na mistura final; desliga se precisares de poupar CPU.",
+                                  "HQ 2x: the tape saturation runs at twice the sample rate. Use it at high drive or on the final mix; turn it off to save CPU."),
+                              r.toNearestInt(), juce::Justification::topLeft, 4, 1.0f);
+        };
+        p.layout = [&p, &wa, &dr, &bi, &ra, &ji, &gm, &ch, &pd, &hi, &hq]
+        {
+            p.sections = { { { 0, 0, 300, 190 }, "TAPE SATURATION" }, { { 312, 0, 652, 190 }, "DIGITAL GRIT" }, { { 0, 202, 964, 190 }, tr ("CARÁCTER, ENTRADA E RUÍDO", "CHARACTER, INPUT AND NOISE") } };
             row ({ &wa, &dr }, { 10, 40, 280, 140 });
             row ({ &bi, &ra, &ji, &gm }, { 322, 40, 632, 140 });
-            row ({ &ch, &pd }, { 10, 240, 300, 140 });
+            row ({ &ch, &pd, &hi }, { 10, 240, 450, 140 });
+            hq.setBounds (494, 240, 100, 28);
         };
     }
 
@@ -628,6 +678,9 @@ private:
         auto& gTh = p.add (knob (s, id::gate_thresh, "THRESHOLD", "", col::violet, K::Small, false, tr ("Nível da fonte que abre o gate", "Source level that opens the gate")));
         auto& gHo = p.add (knob (s, id::gate_hold, "HOLD", "", col::violet, K::Small, false, tr ("Quanto tempo a cauda soa depois de a fonte parar", "How long the tail sounds after the source stops")));
         auto& gRe = p.add (knob (s, id::gate_release, "RELEASE", "", col::violet, K::Small, false, tr ("Rapidez do corte (curto = abrupto)", "How fast it cuts (short = abrupt)")));
+        auto& key = p.add (std::make_unique<Segmented> (s, id::key_src, juce::StringArray { tr ("INTERNO", "INTERNAL"), "SIDECHAIN" }, col::coral,
+                           tr ("O que controla o ducker e o gate: a própria fonte ou a entrada sidechain (ex.: voz a baixar os ecos do instrumental)", "What drives the ducker and gate: the source itself or the sidechain input (e.g. vocal ducking the beat's echoes)")));
+        auto& cl = p.add (std::make_unique<ToggleChip> (s, id::const_loud, tr ("VOLUME CONST.", "CONST. LOUDNESS"), col::cyan, tr ("Mantém o volume dos ecos igual quando mexes no feedback (compara presets sem enganar o ouvido)", "Keeps the echo level the same when you change the feedback (compare presets without fooling your ears)")));
         auto& law = p.add (std::make_unique<Segmented> (s, id::mix_law, juce::StringArray { "LINEAR", tr ("POTÊNCIA CONST.", "CONST. POWER") }, col::cyan, tr ("Curva do MIX: potência constante mantém o volume percebido", "MIX curve: constant power keeps the perceived volume")));
         auto& wt = p.add (knob (s, id::wet_trim, "WET TRIM", "", col::text, K::Small, true, tr ("Ganho só dos ecos", "Gain of the echoes only")));
         auto& ot = p.add (knob (s, id::out_trim, "OUTPUT", "", col::text, K::Small, true, tr ("Ganho de saída", "Output gain")));
@@ -653,8 +706,17 @@ private:
         langSw.text = col::text;
         langSw.textDim = col::muted;
         langSw.hoverFill = col::panel2;
-        p.extraPaint = [&p] (juce::Graphics& g)
+        p.extraPaint = [this, &p] (juce::Graphics& g)
         {
+            // indicador do sidechain
+            if (proc.raw.load().key_src > 0.5f)
+            {
+                const bool on = proc.sidechainActive.load();
+                g.setColour (on ? col::green : col::coral);
+                g.fillEllipse (juce::Rectangle<float> (7, 7).withCentre ({ 400.0f, 17.0f }));
+                label (g, on ? tr ("SIDECHAIN A RECEBER", "SIDECHAIN RECEIVING") : tr ("SEM SIDECHAIN NO DAW", "NO SIDECHAIN FROM DAW"),
+                       { 408.0f, 10.0f, 186.0f, 14.0f }, 10.5f, W::Semi, on ? col::green : col::coral, juce::Justification::centredLeft, 0.1f);
+            }
             // idioma (rótulo bilingue para quem estiver "perdido" no outro idioma)
             label (g, tr ("IDIOMA · LANGUAGE", "LANGUAGE · IDIOMA"), { 502.0f, 318.0f, 206.0f, 14.0f }, 11.0f, W::Semi, col::muted, juce::Justification::centredLeft, 0.18f);
             auto r = p.sections[4].r.toFloat().reduced (14.0f).withTrimmedTop (20.0f);
@@ -666,17 +728,19 @@ private:
             label (g, lic::License::get().statusText(), r.removeFromTop (16.0f), 12.5f, W::Semi, col::cyan, juce::Justification::centredLeft, 0.02f);
         };
         logoutBtn = &logout;
-        p.layout = [&p, &on, &th, &am, &at, &ho, &re, &gOn, &gTh, &gHo, &gRe, &law, &wt, &ot, &mx, sizes, &logout, &langSw]
+        p.layout = [&p, &on, &th, &am, &at, &ho, &re, &gOn, &gTh, &gHo, &gRe, &law, &wt, &ot, &mx, sizes, &logout, &langSw, &key, &cl]
         {
             logout.setBounds (746, 356, 130, 26);
             langSw.setBounds (502, 338, 110, 30);
             p.sections = { { { 0, 0, 600, 190 }, "DUCKER" }, { { 612, 0, 352, 190 }, tr ("GATE DOS ECOS", "ECHO GATE") },
                            { { 0, 202, 474, 190 }, tr ("MISTURA E GANHO", "MIX AND GAIN") }, { { 490, 202, 230, 190 }, "INTERFACE" }, { { 732, 202, 232, 190 }, tr ("SOBRE", "ABOUT") } };
-            on.setBounds (110, 4, 62, 26);
+            on.setBounds (84, 4, 62, 26);
+            key.setBounds (156, 4, 230, 26);
             row ({ &th, &am, &at, &ho, &re }, { 6, 40, 588, 140 });
             gOn.setBounds (760, 4, 62, 26);
             row ({ &gTh, &gHo, &gRe }, { 618, 40, 340, 140 });
             law.setBounds (16, 232, 240, 28);
+            cl.setBounds (266, 232, 196, 28);
             row ({ &wt, &ot, &mx }, { 10, 270, 360, 116 });
             int x = 502, y = 236;
             for (auto* b : *sizes) { b->setBounds (x, y, 64, 28); x += 70; if (x > 680) { x = 502; y += 36; } }
@@ -779,6 +843,14 @@ private:
             if (++slowTick % 6 == 0) pages[currentTab]->repaint();   // textos dinâmicos (ordem, limitador, matriz)
         }
         grBar.tick();
+        const bool monOn = v.monitor > 0.5f;
+        if (monitorBox->getProperties()["alert"] != juce::var (monOn))
+        {
+            monitorBox->getProperties().set ("alert", monOn);
+            monitorBox->setColour (juce::ComboBox::outlineColourId, monOn ? col::coral : col::line2);
+            monitorBox->setColour (juce::ComboBox::textColourId, monOn ? col::coral : col::text);
+            monitorBox->repaint();
+        }
     }
     int slowTick = 0;
 };

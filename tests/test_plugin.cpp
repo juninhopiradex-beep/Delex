@@ -550,10 +550,10 @@ int main()
     // 4) mono → estéreo, mono → mono e precisão dupla
     {
         juce::AudioProcessor::BusesLayout l;
-        l.inputBuses.add (juce::AudioChannelSet::mono()); l.outputBuses.add (juce::AudioChannelSet::stereo());
+        l.inputBuses.add (juce::AudioChannelSet::mono()); l.inputBuses.add (juce::AudioChannelSet::disabled()); l.outputBuses.add (juce::AudioChannelSet::stereo());
         check (p.checkBusesLayoutSupported (l), "layout mono → estéreo aceite");
         juce::AudioProcessor::BusesLayout bad;
-        bad.inputBuses.add (juce::AudioChannelSet::stereo()); bad.outputBuses.add (juce::AudioChannelSet::mono());
+        bad.inputBuses.add (juce::AudioChannelSet::stereo()); bad.inputBuses.add (juce::AudioChannelSet::disabled()); bad.outputBuses.add (juce::AudioChannelSet::mono());
         check (! p.checkBusesLayoutSupported (bad), "layout estéreo → mono recusado");
 
         DelexProcessor d; d.setPlayConfigDetails (2, 2, 96000.0, 256); d.prepareToPlay (96000.0, 256);
@@ -574,6 +574,99 @@ int main()
         check (std::abs (delex::delayMsL (v, 120.0) - 500.0) < 0.01, "1/4 a 120 BPM = 500 ms", delex::delayMsL (v, 120.0), 500.0);
         v.div = 4;               // 1/4D
         check (std::abs (delex::delayMsL (v, 120.0) - 750.0) < 0.01, "1/4D a 120 BPM = 750 ms", delex::delayMsL (v, 120.0), 750.0);
+    }
+
+    // 6) vaga A: sidechain, MIDI learn, bloqueios, escuta, ordem do loop
+    std::printf ("Vaga A (sidechain, MIDI learn, bloqueios, escuta)\n");
+    {
+        // layouts com sidechain
+        juce::AudioProcessor::BusesLayout l;
+        l.inputBuses.add (juce::AudioChannelSet::stereo()); l.inputBuses.add (juce::AudioChannelSet::stereo());
+        l.outputBuses.add (juce::AudioChannelSet::stereo());
+        check (p.checkBusesLayoutSupported (l), "layout com sidechain estéreo aceite");
+        l.inputBuses.getReference (1) = juce::AudioChannelSet::disabled();
+        check (p.checkBusesLayoutSupported (l), "layout com sidechain desligado aceite");
+
+        // a voz no sidechain baixa os ecos do instrumental
+        auto wetEnergy = [] (bool scLoud)
+        {
+            DelexProcessor d;
+            juce::AudioProcessor::BusesLayout lay;
+            lay.inputBuses.add (juce::AudioChannelSet::stereo()); lay.inputBuses.add (juce::AudioChannelSet::stereo());
+            lay.outputBuses.add (juce::AudioChannelSet::stereo());
+            d.setBusesLayout (lay);
+            d.setRateAndBufferSizeDetails (48000.0, 256);
+            d.prepareToPlay (48000.0, 256);
+            setParam (d, delex::id::key_src, 1.0f);
+            setParam (d, delex::id::duck, 1.0f);
+            setParam (d, delex::id::duck_thresh, -40.0f);
+            setParam (d, delex::id::duck_amount, 24.0f);
+            setParam (d, delex::id::mix, 100.0f);
+            setParam (d, delex::id::sync, 0.0f);
+            setParam (d, delex::id::time, 100.0f);
+            juce::AudioBuffer<float> b (4, 256); juce::MidiBuffer m;
+            double e = 0; bool active = false;
+            for (int k = 0; k < 200; ++k)
+            {
+                b.clear();
+                for (int i = 0; i < 256; ++i)
+                {
+                    const float x = 0.3f * std::sin (0.05f * (float) (k * 256 + i));
+                    b.setSample (0, i, x); b.setSample (1, i, x);
+                    if (scLoud) { b.setSample (2, i, 0.5f); b.setSample (3, i, 0.5f); }
+                }
+                d.processBlock (b, m);
+                active = d.sidechainActive.load();
+                if (k > 100) for (int i = 0; i < 256; ++i) e += b.getSample (0, i) * b.getSample (0, i);
+            }
+            return std::make_pair (e, active);
+        };
+        const auto quiet = wetEnergy (false), loud = wetEnergy (true);
+        const double drop = 10.0 * std::log10 (quiet.first / juce::jmax (1.0e-12, loud.first));
+        check (quiet.second && loud.second && drop > 10.0, "sidechain: chave externa baixa os ecos (dB)", drop, 20.0);
+
+        // MIDI learn
+        p.startMidiLearn (delex::id::feedback);
+        check (p.isLearning (delex::id::feedback), "MIDI learn em espera");
+        juce::AudioBuffer<float> b (2, 64); b.clear();
+        juce::MidiBuffer m; m.addEvent (juce::MidiMessage::controllerEvent (1, 21, 64), 0);
+        p.processBlock (b, m);
+        check (! p.isLearning (delex::id::feedback) && p.midiCcFor (delex::id::feedback) == 21, "MIDI learn associa o CC 21", p.midiCcFor (delex::id::feedback), 21);
+        m.clear(); m.addEvent (juce::MidiMessage::controllerEvent (1, 21, 127), 0);
+        p.processBlock (b, m);
+        check (std::abs (p.apvts.getParameter (delex::id::feedback)->getValue() - 1.0f) < 1.0e-4f, "CC 127 leva o parâmetro ao máximo");
+        {
+            juce::MemoryBlock st; p.getStateInformation (st);
+            DelexProcessor q; q.setStateInformation (st.getData(), (int) st.getSize());
+            check (q.midiCcFor (delex::id::feedback) == 21, "mapa MIDI guardado na sessão", q.midiCcFor (delex::id::feedback), 21);
+        }
+        p.forgetMidi (delex::id::feedback);
+        check (p.midiCcFor (delex::id::feedback) == -1, "esquecer MIDI");
+
+        // bloqueios ao trocar de preset
+        const int maskBefore = p.getLockMask();
+        p.setLockMask (delex::LockTime | delex::LockMix);
+        setParam (p, delex::id::sync, 0.0f); setParam (p, delex::id::time, 333.0f); setParam (p, delex::id::mix, 42.0f);
+        p.loadFactoryPreset (3);
+        check (std::abs (plain (p, delex::id::time) - 333.0f) < 0.6f && std::abs (plain (p, delex::id::mix) - 42.0f) < 0.3f, "bloqueio TEMPO+MIX mantém tempo e mix", plain (p, delex::id::time), 333.0);
+        p.setLockMask (0);
+        p.loadFactoryPreset (3);
+        check (std::abs (plain (p, delex::id::mix) - 42.0f) > 0.3f, "sem bloqueio o preset muda o mix", plain (p, delex::id::mix), 0.0);
+        p.setLockMask (maskBefore);
+
+        // escuta não é guardada nos presets
+        setParam (p, delex::id::monitor, 2.0f);
+        p.loadFactoryPreset (5);
+        check (std::lround (plain (p, delex::id::monitor)) == 2, "modo de escuta mantém-se ao trocar de preset", plain (p, delex::id::monitor), 2.0);
+        setParam (p, delex::id::monitor, 0.0f);
+
+        // ordem do loop arrastável
+        setParam (p, delex::id::loop_order, 0.0f);
+        delex::ui::LoopOrderList lol (p.apvts);
+        lol.moveModule (4, 0);   // Fita para o início
+        const auto ord = delex::loopPermutations()[(size_t) std::lround (plain (p, delex::id::loop_order))];
+        check (ord[0] == 4 && ord[1] == 0 && ord[4] == 3, "arrastar a Fita para o topo muda a ordem do loop", ord[0], 4);
+        setParam (p, delex::id::loop_order, 0.0f);
     }
 
     testControls (p);
@@ -598,7 +691,7 @@ int main()
                    << " | " << curve << " | " << (r->isAutomatable() ? juce::String ("sim") : u8 ("não")) << " |\n";
             }
         juce::File (juce::File::getCurrentWorkingDirectory().getChildFile ("docs/PARAMETROS.md")).replaceWithText (md);
-        check (count == 61, "parametros documentados", count, 61);
+        check (count == 73, "parametros documentados", count, 73);
     }
 
     // 6) capturas da interface

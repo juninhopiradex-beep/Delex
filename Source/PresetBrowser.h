@@ -58,6 +58,30 @@ public:
         openFolder.onClick = [this] { auto d = proc.userPresetFolder(); d.createDirectory(); d.startAsProcess(); };
         addAndMakeVisible (openFolder);
 
+        // bloquear grupos ao trocar de preset (ex.: manter o tempo e o mix do projecto)
+        const juce::StringArray lockNames { tr ("TEMPO", "TIME"), "MIX", tr ("DINÂM.", "DYN."), "EQ" };
+        const juce::StringArray lockTips {
+            tr ("Mantém tempo, sync, divisão e ratio ao trocar de preset", "Keeps time, sync, division and ratio when changing preset"),
+            tr ("Mantém mix, wet trim e output ao trocar de preset", "Keeps mix, wet trim and output when changing preset"),
+            tr ("Mantém ducker e gate ao trocar de preset", "Keeps ducker and gate when changing preset"),
+            tr ("Mantém o EQ do loop ao trocar de preset", "Keeps the loop EQ when changing preset") };
+        for (int i = 0; i < 4; ++i)
+        {
+            auto* b = lockButtons.add (new juce::TextButton (lockNames[i]));
+            b->setClickingTogglesState (true);
+            b->setColour (juce::TextButton::buttonOnColourId, col::gold);
+            b->getProperties().set ("fontH", 11.0f);
+            b->setTooltip (lockTips[i]);
+            b->setToggleState ((proc.getLockMask() & (1 << i)) != 0, juce::dontSendNotification);
+            b->onClick = [this]
+            {
+                int m = 0;
+                for (int k = 0; k < lockButtons.size(); ++k) if (lockButtons[k]->getToggleState()) m |= 1 << k;
+                proc.setLockMask (m);
+            };
+            addAndMakeVisible (b);
+        }
+
         close.outline = true;
         close.setTooltip (tr ("Fechar", "Close"));
         close.onClick = [this] { if (onClose) onClose(); };
@@ -89,6 +113,7 @@ public:
 
         g.setColour (col::bg); g.fillRect (Rectangle<float> (0, 53, 220, r.getHeight()));
         g.setColour (col::line); g.drawVerticalLine (220, 53, (float) getHeight());
+        label (g, tr ("BLOQUEAR", "LOCK"), { (float) lockLabelX, 19.0f, 66.0f, 14.0f }, 11.0f, W::Semi, col::gold, Justification::centredRight, 0.18f);
         label (g, tr ("PROCURAR", "SEARCH"), { 12.0f, 64.0f, 190.0f, 14.0f }, 11.0f, W::Semi, col::muted, Justification::centredLeft, 0.18f);
 
         g.setColour (col::bg); g.fillRect (Rectangle<float> (221, 53, (float) getWidth() - 471, r.getHeight()));
@@ -146,6 +171,16 @@ public:
         saveAs.setBounds (close.getX() - 136, 11, 128, 30);
         openFolder.setBounds (saveAs.getX() - 70, 11, 62, 30);
         search.setBounds (12, 82, 196, 32);
+        {
+            int x = openFolder.getX() - 8;
+            for (int i = lockButtons.size(); --i >= 0;)
+            {
+                auto* b = lockButtons[i];
+                const int w = (int) juce::GlyphArrangement::getStringWidth (font (11.0f, W::Bold, 0.09f), b->getButtonText()) + 18;
+                x -= w; b->setBounds (x, 15, w, 22); x -= 4;
+            }
+            lockLabelX = x - 70;
+        }
         // 22 botões (favoritos, todos, 19 categorias, utilizador) cabem sempre na coluna
         const int step = juce::jlimit (18, 31, (getHeight() - 124 - 6) / juce::jmax (1, catButtons.size()));
         int y = 124;
@@ -296,7 +331,8 @@ private:
 
     DelexProcessor& proc;
     juce::TextEditor search;
-    juce::OwnedArray<juce::TextButton> catButtons;
+    juce::OwnedArray<juce::TextButton> catButtons, lockButtons;
+    int lockLabelX = 400;
     juce::ListBox list;
     juce::TextButton load, saveAs, openFolder;
     IconButton close { "fechar", [] (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c) { icons::cross (g, r, c); } };

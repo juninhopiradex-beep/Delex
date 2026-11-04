@@ -38,28 +38,57 @@ inline juce::String num (double v, int decimals)
     return juce::String (v, decimals);
 }
 
-// ---------------------------------------------------------------- IDs
+// ---------------------------------------------------------------- lista única de parâmetros
+//  A ordem desta lista define a ordem dos campos em Values (todos float).
+//  IDs estáveis: nunca mudar um nome existente (automação e sessões dos DAWs).
+#define DELEX_PARAMS(X) \
+    X(sync) X(div) X(time) X(feedback) X(space) X(tone) X(character) X(mix) \
+    X(freeze) X(duck) X(bypass) \
+    X(routing) X(r_ratio) X(fb_balance) X(transition) X(glide) \
+    X(rotation) X(rot_mode) X(in_rot) X(out_rot) X(in_width) X(out_width) X(mono_safe) \
+    X(low_cut) X(high_cut) X(cut_slope) X(peak_freq) X(peak_gain) X(peak_q) X(compensate) X(loop_order) \
+    X(mod_depth) X(mod_rate) X(mod_sync) X(mod_div) X(mod_offset) X(mod_shape) X(wow) \
+    X(disp_freq) X(disp_spread) X(diff_amount) X(diff_spread) \
+    X(warmth) X(drive) X(bits) X(rate) X(jitter) X(grit_mix) X(pre_drive) \
+    X(duck_thresh) X(duck_amount) X(duck_attack) X(duck_hold) X(duck_release) \
+    X(gate) X(gate_thresh) X(gate_hold) X(gate_release) \
+    X(mix_law) X(wet_trim) X(out_trim) \
+    /* v1.0 — vaga A */ \
+    X(key_src) X(monitor) X(const_loud) \
+    X(ls_freq) X(ls_gain) X(hs_freq) X(hs_gain) X(peak2_freq) X(peak2_gain) X(peak2_q) \
+    X(hiss) X(sat_hq)
+
 namespace id
 {
     #define DLX_ID(x) inline constexpr const char* x = #x;
-    DLX_ID(sync) DLX_ID(div) DLX_ID(time) DLX_ID(feedback) DLX_ID(space) DLX_ID(tone) DLX_ID(character) DLX_ID(mix)
-    DLX_ID(freeze) DLX_ID(duck) DLX_ID(bypass)
-    DLX_ID(routing) DLX_ID(r_ratio) DLX_ID(fb_balance) DLX_ID(transition) DLX_ID(glide)
-    DLX_ID(rotation) DLX_ID(rot_mode) DLX_ID(in_rot) DLX_ID(out_rot) DLX_ID(in_width) DLX_ID(out_width) DLX_ID(mono_safe)
-    DLX_ID(low_cut) DLX_ID(high_cut) DLX_ID(cut_slope) DLX_ID(peak_freq) DLX_ID(peak_gain) DLX_ID(peak_q) DLX_ID(compensate) DLX_ID(loop_order)
-    DLX_ID(mod_depth) DLX_ID(mod_rate) DLX_ID(mod_sync) DLX_ID(mod_div) DLX_ID(mod_offset) DLX_ID(mod_shape) DLX_ID(wow)
-    DLX_ID(disp_freq) DLX_ID(disp_spread) DLX_ID(diff_amount) DLX_ID(diff_spread)
-    DLX_ID(warmth) DLX_ID(drive) DLX_ID(bits) DLX_ID(rate) DLX_ID(jitter) DLX_ID(grit_mix) DLX_ID(pre_drive)
-    DLX_ID(duck_thresh) DLX_ID(duck_amount) DLX_ID(duck_attack) DLX_ID(duck_hold) DLX_ID(duck_release)
-    DLX_ID(gate) DLX_ID(gate_thresh) DLX_ID(gate_hold) DLX_ID(gate_release)
-    DLX_ID(mix_law) DLX_ID(wet_trim) DLX_ID(out_trim)
+    DELEX_PARAMS (DLX_ID)
     #undef DLX_ID
+}
+
+inline const std::vector<const char*>& paramIds()
+{
+    static const std::vector<const char*> v {
+        #define DLX_S(x) #x,
+        DELEX_PARAMS (DLX_S)
+        #undef DLX_S
+    };
+    return v;
 }
 
 inline const juce::StringArray& loopOrderNames()
 {
-    static const juce::StringArray s { "Grit > EQ > Disp > Dif > Fita", "EQ > Fita > Dif > Disp > Grit",
-                                       "Fita > EQ > Dif > Disp > Grit", "Dif > Disp > EQ > Fita > Grit" };
+    static const juce::StringArray s = []
+    {
+        static const char* mod[5] = { "Grit", "EQ", "Disp", "Dif", "Fita" };
+        juce::StringArray out;
+        for (auto& perm : loopPermutations())
+        {
+            juce::StringArray parts;
+            for (auto m : perm) parts.add (mod[m]);
+            out.add (parts.joinIntoString (" > "));
+        }
+        return out;
+    }();
     return s;
 }
 
@@ -164,73 +193,78 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     addF (id::wet_trim, "Wet Trim", { -24.0f, 12.0f }, 0.0f, db);
     addF (id::out_trim, "Output", { -24.0f, 12.0f }, 0.0f, db);
 
+    // --- v1.0 (vaga A)
+    addC (id::key_src, "Key Source", { "Internal", "Sidechain" }, 0);
+    addC (id::monitor, "Monitor", { "Normal", "Wet Solo", "Delta", "Mono", "Phone", "Club" }, 0);
+    addB (id::const_loud, "Constant Loudness", false);
+    addF (id::ls_freq, "Low Shelf Freq", skewed (30.0f, 1000.0f, 150.0f), 150.0f, hz);
+    addF (id::ls_gain, "Low Shelf Gain", { -18.0f, 18.0f }, 0.0f, db);
+    addF (id::hs_freq, "High Shelf Freq", skewed (1000.0f, 16000.0f, 5000.0f), 6000.0f, hz);
+    addF (id::hs_gain, "High Shelf Gain", { -18.0f, 18.0f }, 0.0f, db);
+    addF (id::peak2_freq, "Peak 2 Freq", skewed (100.0f, 10000.0f, 1000.0f), 3000.0f, hz);
+    addF (id::peak2_gain, "Peak 2 Gain", { -18.0f, 18.0f }, 0.0f, db);
+    addF (id::peak2_q, "Peak 2 Q", skewed (0.3f, 10.0f, 1.5f), 1.0f, [] (float v, int) { return String (v, 2); });
+    addF (id::hiss, "Tape Hiss", { 0.0f, 100.0f }, 0.0f, pct);
+    addB (id::sat_hq, "Saturation HQ (2x)", false);
+
     return { p.begin(), p.end() };
 }
 
 // ---------------------------------------------------------------- valores lidos
-//  Cópia plana de todos os parâmetros (usada no áudio e no visualizador)
+//  Cópia plana de todos os parâmetros (usada no áudio e no visualizador).
+//  Só floats, pela ordem de DELEX_PARAMS → acesso genérico por índice.
 struct Values
 {
-    float sync, div, time, feedback, space, tone, character, mix, freeze, duck, bypass,
-          routing, r_ratio, fb_balance, transition, glide,
-          rotation, rot_mode, in_rot, out_rot, in_width, out_width, mono_safe,
-          low_cut, high_cut, cut_slope, peak_freq, peak_gain, peak_q, compensate, loop_order,
-          mod_depth, mod_rate, mod_sync, mod_div, mod_offset, mod_shape, wow,
-          disp_freq, disp_spread, diff_amount, diff_spread,
-          warmth, drive, bits, rate, jitter, grit_mix, pre_drive,
-          duck_thresh, duck_amount, duck_attack, duck_hold, duck_release,
-          gate, gate_thresh, gate_hold, gate_release,
-          mix_law, wet_trim, out_trim;
+    #define DLX_F(x) float x = 0.0f;
+    DELEX_PARAMS (DLX_F)
+    #undef DLX_F
+
+    static constexpr int count() noexcept
+    {
+        int n = 0;
+        #define DLX_C(x) ++n;
+        DELEX_PARAMS (DLX_C)
+        #undef DLX_C
+        return n;
+    }
+    float*       data() noexcept       { return &sync; }
+    const float* data() const noexcept { return &sync; }
 };
+static_assert (sizeof (Values) == sizeof (float) * (size_t) Values::count(), "Values tem de ser só floats");
 
 class RawParams
 {
 public:
     explicit RawParams (juce::AudioProcessorValueTreeState& s)
     {
-        #define DLX_P(x) x = s.getRawParameterValue (id::x); jassert (x != nullptr);
-        DLX_P(sync) DLX_P(div) DLX_P(time) DLX_P(feedback) DLX_P(space) DLX_P(tone) DLX_P(character) DLX_P(mix)
-        DLX_P(freeze) DLX_P(duck) DLX_P(bypass) DLX_P(routing) DLX_P(r_ratio) DLX_P(fb_balance) DLX_P(transition) DLX_P(glide)
-        DLX_P(rotation) DLX_P(rot_mode) DLX_P(in_rot) DLX_P(out_rot) DLX_P(in_width) DLX_P(out_width) DLX_P(mono_safe)
-        DLX_P(low_cut) DLX_P(high_cut) DLX_P(cut_slope) DLX_P(peak_freq) DLX_P(peak_gain) DLX_P(peak_q) DLX_P(compensate) DLX_P(loop_order)
-        DLX_P(mod_depth) DLX_P(mod_rate) DLX_P(mod_sync) DLX_P(mod_div) DLX_P(mod_offset) DLX_P(mod_shape) DLX_P(wow)
-        DLX_P(disp_freq) DLX_P(disp_spread) DLX_P(diff_amount) DLX_P(diff_spread)
-        DLX_P(warmth) DLX_P(drive) DLX_P(bits) DLX_P(rate) DLX_P(jitter) DLX_P(grit_mix) DLX_P(pre_drive)
-        DLX_P(duck_thresh) DLX_P(duck_amount) DLX_P(duck_attack) DLX_P(duck_hold) DLX_P(duck_release)
-        DLX_P(gate) DLX_P(gate_thresh) DLX_P(gate_hold) DLX_P(gate_release)
-        DLX_P(mix_law) DLX_P(wet_trim) DLX_P(out_trim)
-        #undef DLX_P
+        const auto& ids = paramIds();
+        for (size_t i = 0; i < ids.size(); ++i)
+        {
+            ptr[i] = s.getRawParameterValue (ids[i]);
+            prm[i] = s.getParameter (ids[i]);
+            jassert (ptr[i] != nullptr);
+        }
     }
 
     Values load() const noexcept
     {
         Values v;
-        #define DLX_L(x) v.x = x->load (std::memory_order_relaxed);
-        DLX_L(sync) DLX_L(div) DLX_L(time) DLX_L(feedback) DLX_L(space) DLX_L(tone) DLX_L(character) DLX_L(mix)
-        DLX_L(freeze) DLX_L(duck) DLX_L(bypass) DLX_L(routing) DLX_L(r_ratio) DLX_L(fb_balance) DLX_L(transition) DLX_L(glide)
-        DLX_L(rotation) DLX_L(rot_mode) DLX_L(in_rot) DLX_L(out_rot) DLX_L(in_width) DLX_L(out_width) DLX_L(mono_safe)
-        DLX_L(low_cut) DLX_L(high_cut) DLX_L(cut_slope) DLX_L(peak_freq) DLX_L(peak_gain) DLX_L(peak_q) DLX_L(compensate) DLX_L(loop_order)
-        DLX_L(mod_depth) DLX_L(mod_rate) DLX_L(mod_sync) DLX_L(mod_div) DLX_L(mod_offset) DLX_L(mod_shape) DLX_L(wow)
-        DLX_L(disp_freq) DLX_L(disp_spread) DLX_L(diff_amount) DLX_L(diff_spread)
-        DLX_L(warmth) DLX_L(drive) DLX_L(bits) DLX_L(rate) DLX_L(jitter) DLX_L(grit_mix) DLX_L(pre_drive)
-        DLX_L(duck_thresh) DLX_L(duck_amount) DLX_L(duck_attack) DLX_L(duck_hold) DLX_L(duck_release)
-        DLX_L(gate) DLX_L(gate_thresh) DLX_L(gate_hold) DLX_L(gate_release)
-        DLX_L(mix_law) DLX_L(wet_trim) DLX_L(out_trim)
-        #undef DLX_L
+        float* d = v.data();
+        for (int i = 0; i < Values::count(); ++i) d[i] = ptr[(size_t) i]->load (std::memory_order_relaxed);
         return v;
     }
 
+    juce::RangedAudioParameter* parameter (int index) const noexcept { return prm[(size_t) index]; }
+    static int indexOf (const juce::String& pid)
+    {
+        const auto& ids = paramIds();
+        for (size_t i = 0; i < ids.size(); ++i) if (pid == ids[i]) return (int) i;
+        return -1;
+    }
+
 private:
-    std::atomic<float>* sync, * div, * time, * feedback, * space, * tone, * character, * mix, * freeze, * duck, * bypass,
-                      * routing, * r_ratio, * fb_balance, * transition, * glide,
-                      * rotation, * rot_mode, * in_rot, * out_rot, * in_width, * out_width, * mono_safe,
-                      * low_cut, * high_cut, * cut_slope, * peak_freq, * peak_gain, * peak_q, * compensate, * loop_order,
-                      * mod_depth, * mod_rate, * mod_sync, * mod_div, * mod_offset, * mod_shape, * wow,
-                      * disp_freq, * disp_spread, * diff_amount, * diff_spread,
-                      * warmth, * drive, * bits, * rate, * jitter, * grit_mix, * pre_drive,
-                      * duck_thresh, * duck_amount, * duck_attack, * duck_hold, * duck_release,
-                      * gate, * gate_thresh, * gate_hold, * gate_release,
-                      * mix_law, * wet_trim, * out_trim;
+    std::array<std::atomic<float>*, (size_t) Values::count()> ptr {};
+    std::array<juce::RangedAudioParameter*, (size_t) Values::count()> prm {};
 };
 
 // ---------------------------------------------------------------- tempo
@@ -281,7 +315,9 @@ inline Params toEngine (const Values& v, double bpm, double sr)
     p.lowCutHz = v.low_cut;  p.highCutHz = v.high_cut;
     p.cutSlope = (CutSlope) juce::jlimit (0, 2, (int) std::lround (v.cut_slope));
     p.peakHz = v.peak_freq;  p.peakDb = v.peak_gain;  p.peakQ = v.peak_q;  p.compensate = v.compensate * 0.01f;
-    p.loopOrder = juce::jlimit (0, 3, (int) std::lround (v.loop_order));
+    p.loopOrder = juce::jlimit (0, (int) loopPermutations().size() - 1, (int) std::lround (v.loop_order));
+    p.lsHz = v.ls_freq; p.lsDb = v.ls_gain; p.hsHz = v.hs_freq; p.hsDb = v.hs_gain;
+    p.pk2Hz = v.peak2_freq; p.pk2Db = v.peak2_gain; p.pk2Q = v.peak2_q;
 
     p.dispHz = v.disp_freq;  p.dispSpreadMs = v.disp_spread;
     p.diffAmount = v.diff_amount * 0.01f;  p.diffSpreadMs = v.diff_spread;
@@ -301,6 +337,10 @@ inline Params toEngine (const Values& v, double bpm, double sr)
     p.mix = v.mix * 0.01f;  p.equalPower = v.mix_law > 0.5f;
     p.wetTrimDb = v.wet_trim;  p.outTrimDb = v.out_trim;
     p.bypass = v.bypass > 0.5f;
+    p.monitor = (Monitor) juce::jlimit (0, 5, (int) std::lround (v.monitor));
+    p.constLoudness = v.const_loud > 0.5f;
+    p.hiss = v.hiss * 0.01f;
+    p.satHQ = v.sat_hq > 0.5f;
 
     // --- macros
     const float s = juce::jlimit (0.0f, 1.0f, v.space * 0.01f);

@@ -16,5 +16,5 @@
     <choice id="com.piradex.delex2.plugins" visible="false">
         <pkg-ref id="com.piradex.delex2.plugins"/>
     </choice>
-    <pkg-ref id="com.piradex.delex2.plugins" version="2.0.0" onConclusion="none">delex-plugins.pkg</pkg-ref>
+    <pkg-ref id="com.piradex.delex2.plugins" version="1.0.0" onConclusion="none">delex-plugins.pkg</pkg-ref>
 </installer-gui-script>

@@ -5,6 +5,7 @@
 
 #include "Look.h"
 #include "PluginProcessor.h"
+#include <complex>
 
 namespace delex::ui
 {
@@ -12,10 +13,38 @@ using APVTS = juce::AudioProcessorValueTreeState;
 
 inline juce::String fineTip() { return tr ("\n(Duplo clique repõe · Shift arrasta com precisão · duplo clique no valor para escrever)", "\n(Double-click resets · Shift-drag for precision · double-click the value to type)"); }
 
+// ---------------------------------------------------------------- MIDI learn (clique direito)
+inline DelexProcessor* processorOf (APVTS& s) { return dynamic_cast<DelexProcessor*> (&s.processor); }
+
+inline void showParamMenu (APVTS& s, const juce::String& pid, juce::Component* target, std::function<void()> afterLearn = {})
+{
+    auto* proc = processorOf (s);
+    auto* prm = s.getParameter (pid);
+    if (proc == nullptr || prm == nullptr) return;
+    juce::PopupMenu m;
+    const int cc = proc->midiCcFor (pid);
+    m.addSectionHeader (prm->getName (40));
+    m.addItem (1, proc->isLearning (pid) ? tr ("A aprender... (mexe num controlador)", "Learning... (move a controller)")
+                                         : tr ("Aprender MIDI", "MIDI learn"));
+    if (cc >= 0) m.addItem (2, tr ("Esquecer MIDI (CC ", "Forget MIDI (CC ") + juce::String (cc) + ")");
+    m.addSeparator();
+    m.addItem (3, tr ("Repor valor", "Reset value"));
+    juce::Component::SafePointer<juce::Component> safe (target);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target),
+        [proc, prm, pid, safe, afterLearn] (int r)
+        {
+            if (r == 1) { proc->startMidiLearn (pid); if (afterLearn) afterLearn(); }
+            else if (r == 2) proc->forgetMidi (pid);
+            else if (r == 3) { prm->beginChangeGesture(); prm->setValueNotifyingHost (prm->getDefaultValue()); prm->endChangeGesture(); }
+            if (safe != nullptr) safe->repaint();
+        });
+}
+
 // ---------------------------------------------------------------- slider com ajuste fino (Shift)
 class FineSlider : public juce::Slider
 {
 public:
+    std::function<void()> onRightClick;
     FineSlider()
     {
         setSliderStyle (RotaryHorizontalVerticalDrag);
@@ -26,28 +55,35 @@ public:
     }
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (e.mods.isPopupMenu() && onRightClick) { popupClick = true; onRightClick(); return; }
+        popupClick = false;
         setVelocityBasedMode (e.mods.isShiftDown());
         juce::Slider::mouseDown (e);
     }
+    void mouseDrag (const juce::MouseEvent& e) override { if (! popupClick) juce::Slider::mouseDrag (e); }
+    void mouseUp (const juce::MouseEvent& e) override { if (! popupClick) juce::Slider::mouseUp (e); popupClick = false; }
+private:
+    bool popupClick = false;
 };
 
 // ---------------------------------------------------------------- knob com nome, valor editável e dica
-class Knob : public juce::Component
+class Knob : public juce::Component, private juce::Timer
 {
 public:
     enum class Size { Big, Small };
 
     Knob (APVTS& s, const char* pid, const juce::String& nm, const juce::String& hintText, juce::Colour accent,
           Size sz, bool bipolar, const juce::String& tip)
-        : name (nm), hint (hintText), colour (accent), size (sz)
+        : state (s), paramId (pid), name (nm), hint (hintText), colour (accent), size (sz)
     {
+        slider.onRightClick = [this] { showParamMenu (state, paramId, this, [this] { startTimerHz (10); }); };
         slider.setColour (juce::Slider::rotarySliderFillColourId, accent);
         slider.getProperties().set ("bipolar", bipolar);
         addAndMakeVisible (slider);
         att = std::make_unique<APVTS::SliderAttachment> (s, pid, slider);
         if (auto* p = s.getParameter (pid))
             slider.setDoubleClickReturnValue (true, p->convertFrom0to1 (p->getDefaultValue()));
-        slider.setTooltip (tip + fineTip());
+        slider.setTooltip (tip + fineTip() + tr ("\n(Clique direito: MIDI learn)", "\n(Right-click: MIDI learn)"));
 
         value.setJustificationType (juce::Justification::centred);
         value.setFont (size == Size::Big ? mono (15.0f) : mono (12.5f));
@@ -89,6 +125,23 @@ public:
             label (g, name, juce::Rectangle<float> (0, (float) value.getY() - 16.0f, r.getWidth(), 16.0f), 12.0f, W::Semi, col::text2, juce::Justification::centred, 0.08f);
     }
 
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        auto* proc = processorOf (state);
+        if (proc == nullptr) return;
+        if (proc->isLearning (paramId))
+        {
+            g.setColour (col::cyan.withAlpha (blink ? 0.9f : 0.35f));
+            g.drawEllipse (slider.getBounds().toFloat().reduced (2.0f), 2.0f);
+            g.setFont (mono (9.5f)); g.drawText ("MIDI", slider.getBounds().removeFromTop (12), juce::Justification::centred);
+        }
+        else if (const int cc = proc->midiCcFor (paramId); cc >= 0)
+        {
+            g.setColour (col::cyan.withAlpha (0.8f)); g.setFont (mono (9.0f));
+            g.drawText ("CC" + juce::String (cc), slider.getBounds().removeFromBottom (11).translated (0, 2), juce::Justification::centred);
+        }
+    }
+
     void resized() override
     {
         auto r = getLocalBounds();
@@ -113,8 +166,18 @@ public:
 
     FineSlider slider;
     juce::Label value;
+    juce::String getParamId() const { return paramId; }
 
 private:
+    void timerCallback() override
+    {
+        blink = ! blink; repaint();
+        auto* proc = processorOf (state);
+        if (proc == nullptr || ! proc->isLearning (paramId)) { stopTimer(); repaint(); }
+    }
+    APVTS& state;
+    juce::String paramId;
+    bool blink = false;
     juce::String name, hint;
     juce::Colour colour;
     Size size;
@@ -132,8 +195,31 @@ public:
         setColour (buttonOnColourId, accent);
         setTooltip (tip);
         att = std::make_unique<APVTS::ButtonAttachment> (s, pid, *this);
+        state = &s; paramId = pid;
+    }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu()) { popupClick = true; showParamMenu (*state, paramId, this); return; }
+        popupClick = false; juce::TextButton::mouseDown (e);
+    }
+    void mouseUp (const juce::MouseEvent& e) override { if (! popupClick) juce::TextButton::mouseUp (e); popupClick = false; }
+    void mouseDrag (const juce::MouseEvent& e) override { if (! popupClick) juce::TextButton::mouseDrag (e); }
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        juce::TextButton::paintButton (g, over, down);
+        if (auto* proc = processorOf (*state))
+        {
+            const bool learn = proc->isLearning (paramId);
+            if (learn || proc->midiCcFor (paramId) >= 0)
+            {
+                g.setColour (col::cyan); g.fillEllipse (juce::Rectangle<float> (5, 5).withCentre ({ (float) getWidth() - 6.0f, 6.0f }));
+            }
+        }
     }
 private:
+    APVTS* state = nullptr;
+    juce::String paramId;
+    bool popupClick = false;
     std::unique_ptr<APVTS::ButtonAttachment> att;
 };
 
@@ -192,10 +278,10 @@ private:
 class ChoiceBox : public juce::ComboBox
 {
 public:
-    ChoiceBox (APVTS& s, const char* pid, const juce::String& tip)
+    ChoiceBox (APVTS& s, const char* pid, const juce::String& tip, const juce::StringArray& labels = {})
     {
         if (auto* c = dynamic_cast<juce::AudioParameterChoice*> (s.getParameter (pid)))
-            addItemList (c->choices, 1);
+            addItemList (labels.size() == c->choices.size() ? labels : c->choices, 1);
         setTooltip (tip);
         att = std::make_unique<APVTS::ComboBoxAttachment> (s, pid, *this);
     }
@@ -535,17 +621,25 @@ private:
     float corr = 0;
 };
 
-// ---------------------------------------------------------------- curva do EQ do loop (com nós arrastáveis)
+// ---------------------------------------------------------------- curva do EQ do loop (6 nós arrastáveis)
+//  0 low cut · 1 pico 1 · 2 high cut · 3 pico 2 · 4 low shelf · 5 high shelf
 class EqDisplay : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    explicit EqDisplay (DelexProcessor& p) : proc (p) { setTooltip (tr ("Arrasta os nós: low cut, pico (frequência e ganho) e high cut. Roda do rato no pico muda o Q. Duplo clique repõe.", "Drag the nodes: low cut, peak (frequency and gain) and high cut. Mouse wheel on the peak changes Q. Double-click resets.")); }
+    std::function<void (int band)> onNodeSelected;   // 1 = pico 1, 3 = pico 2, 4/5 = shelves
+
+    explicit EqDisplay (DelexProcessor& p) : proc (p)
+    {
+        setTooltip (tr ("Arrasta os nós: cortes, dois picos e dois shelves. Roda do rato num pico muda o Q. Duplo clique repõe.",
+                        "Drag the nodes: cuts, two peaks and two shelves. Mouse wheel on a peak changes Q. Double-click resets."));
+    }
 
     void tick()
     {
         const auto v = proc.raw.load();
-        const float sig = v.low_cut + v.high_cut * 3.1f + v.cut_slope * 7.7f + v.peak_freq * 1.3f + v.peak_gain * 11.0f + v.peak_q * 17.0f + v.compensate + v.tone * 0.37f;
-        if (std::abs (sig - lastSig) > 1.0e-4f) { lastSig = sig; vals = v; repaint(); }
+        float sig = 0; const float* d = v.data();
+        for (int i = 0; i < Values::count(); ++i) sig += d[i] * (float) ((i % 13) + 1) * 0.001f;
+        if (std::abs (sig - lastSig) > 1.0e-6f) { lastSig = sig; vals = v; repaint(); }
     }
 
     void paint (juce::Graphics& g) override
@@ -571,17 +665,16 @@ public:
         auto curve = [&] (float lc, float hc, bool withComp)
         {
             Path p;
+            const float comp = withComp ? std::max ({ 0.0f, vals.peak_gain, vals.peak2_gain, vals.ls_gain, vals.hs_gain }) * vals.compensate * 0.01f : 0.0f;
             for (int i = 0; i <= 240; ++i)
             {
                 const float f = 20.0f * std::pow (1000.0f, (float) i / 240.0f);
-                float db = magDb (f, lc, hc);
-                if (withComp) db -= jmax (0.0f, vals.peak_gain) * vals.compensate * 0.01f;
+                const float db = magDb (f, lc, hc) - comp;
                 const auto pt = Point<float> (xOf (f), jlimit (r.getY() + 2, r.getBottom() - 2, yOf (db)));
                 if (i == 0) p.startNewSubPath (pt); else p.lineTo (pt);
             }
             return p;
         };
-        // curva efectiva com a macro TONE (se activa)
         const auto eff = toEngine (vals, 120.0, 48000.0);
         if (std::abs (vals.tone) > 0.5f)
         {
@@ -592,20 +685,22 @@ public:
         Path fill (main); fill.lineTo (xOf (20000), r.getBottom()); fill.lineTo (xOf (20), r.getBottom()); fill.closeSubPath();
         g.setColour (col::coral.withAlpha (0.10f)); g.fillPath (fill);
         g.setColour (col::coral); g.strokePath (main, PathStrokeType (2.0f));
-        if (vals.compensate > 0.5f && vals.peak_gain > 0.05f)
+        if (vals.compensate > 0.5f && std::max ({ vals.peak_gain, vals.peak2_gain, vals.ls_gain, vals.hs_gain }) > 0.05f)
         {
             Path dashed; float dl[] = { 3.0f, 3.0f };
             PathStrokeType (1.0f).createDashedStroke (dashed, curve (vals.low_cut, vals.high_cut, true), dl, 2);
             g.setColour (col::muted.withAlpha (0.6f)); g.fillPath (dashed);
         }
 
-        for (int i = 0; i < 3; ++i)
+        static const char* tags[6] = { "LC", "1", "HC", "2", "LS", "HS" };
+        for (int i = 0; i < 6; ++i)
         {
             const auto c = node (i);
             const bool hot = i == dragging || i == hover;
-            g.setColour (col::bg); g.fillEllipse (Rectangle<float> (14, 14).withCentre (c));
-            g.setColour (i == 1 ? col::coral : col::cyan);
-            g.drawEllipse (Rectangle<float> (14, 14).withCentre (c), hot ? 2.6f : 2.0f);
+            const auto colr = nodeColour (i);
+            g.setColour (col::bg); g.fillEllipse (Rectangle<float> (16, 16).withCentre (c));
+            g.setColour (colr); g.drawEllipse (Rectangle<float> (16, 16).withCentre (c), hot ? 2.6f : 2.0f);
+            g.setFont (mono (8.5f)); g.drawText (tags[i], Rectangle<float> (16, 16).withCentre (c), Justification::centred);
         }
         if (std::abs (vals.tone) > 0.5f)
         {
@@ -620,6 +715,7 @@ public:
     {
         dragging = hit (e.position);
         if (dragging < 0) return;
+        if (onNodeSelected && dragging != 0 && dragging != 2) onNodeSelected (dragging);
         proc.undo.beginNewTransaction();
         for (auto* p : params (dragging)) p->beginChangeGesture();
     }
@@ -627,9 +723,16 @@ public:
     {
         if (dragging < 0) return;
         const float f = freqOf (e.position.x);
-        if (dragging == 0) set (id::low_cut, f);
-        else if (dragging == 2) set (id::high_cut, f);
-        else { set (id::peak_freq, f); set (id::peak_gain, juce::jlimit (-18.0f, 18.0f, dbOf (e.position.y))); }
+        const float db = juce::jlimit (-18.0f, 18.0f, dbOf (e.position.y));
+        switch (dragging)
+        {
+            case 0: set (id::low_cut, f); break;
+            case 2: set (id::high_cut, f); break;
+            case 1: set (id::peak_freq, f);  set (id::peak_gain, db); break;
+            case 3: set (id::peak2_freq, f); set (id::peak2_gain, db); break;
+            case 4: set (id::ls_freq, f);    set (id::ls_gain, db); break;
+            default: set (id::hs_freq, f);   set (id::hs_gain, db); break;
+        }
     }
     void mouseUp (const juce::MouseEvent&) override
     {
@@ -644,22 +747,44 @@ public:
     }
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
     {
-        if (hit (e.position) != 1) return;
-        auto* q = proc.apvts.getParameter (id::peak_q);
+        const int h = hit (e.position);
+        if (h != 1 && h != 3) return;
+        auto* q = proc.apvts.getParameter (h == 1 ? id::peak_q : id::peak2_q);
         q->beginChangeGesture(); q->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, q->getValue() + w.deltaY * 0.15f)); q->endChangeGesture();
     }
 
-private:
+    // magnitude da resposta completa (aproximação analógica de cada secção)
     float magDb (float f, float lc, float hc) const
     {
+        using C = std::complex<float>;
         const int n = vals.cut_slope < 0.5f ? 1 : (vals.cut_slope < 1.5f ? 2 : 4);
         const float a = std::pow (f / lc, (float) n), b = std::pow (f / hc, (float) n);
         float m = a / std::sqrt (1.0f + a * a) / std::sqrt (1.0f + b * b);
-        const float A = std::pow (10.0f, vals.peak_gain / 40.0f), Q = vals.peak_q;
-        const float w = f, w0 = vals.peak_freq, d = w0 * w0 - w * w;
-        const float num = d * d + std::pow (w * A * w0 / Q, 2.0f), den = d * d + std::pow (w * w0 / (A * Q), 2.0f);
-        m *= std::sqrt (num / juce::jmax (1.0e-12f, den));
+        auto bell = [f] (float f0, float gDb, float Q)
+        {
+            const float A = std::pow (10.0f, gDb / 40.0f), w = f, d = f0 * f0 - w * w;
+            const float num = d * d + std::pow (w * A * f0 / Q, 2.0f), den = d * d + std::pow (w * f0 / (A * Q), 2.0f);
+            return std::sqrt (num / juce::jmax (1.0e-12f, den));
+        };
+        auto shelf = [f] (float f0, float gDb, bool low)
+        {
+            const float A = std::pow (10.0f, gDb / 40.0f), sq = std::sqrt (A) / 0.70710678f;
+            const C s (0.0f, f / f0);
+            const C hlow  = A * (s * s + sq * s + A) / (A * s * s + sq * s + 1.0f);
+            const C hhigh = A * (A * s * s + sq * s + 1.0f) / (s * s + sq * s + A);
+            return std::abs (low ? hlow : hhigh);
+        };
+        m *= bell (vals.peak_freq, vals.peak_gain, vals.peak_q);
+        m *= bell (vals.peak2_freq, vals.peak2_gain, vals.peak2_q);
+        m *= shelf (vals.ls_freq, vals.ls_gain, true);
+        m *= shelf (vals.hs_freq, vals.hs_gain, false);
         return juce::Decibels::gainToDecibels (m, -60.0f);
+    }
+
+private:
+    static juce::Colour nodeColour (int i)
+    {
+        switch (i) { case 1: return col::coral; case 3: return col::gold; case 4: case 5: return col::violet; default: return col::cyan; }
     }
     float xOf (float f) const { return plot.getX() + plot.getWidth() * std::log10 (f / 20.0f) / 3.0f; }
     float freqOf (float x) const { return 20.0f * std::pow (10.0f, 3.0f * juce::jlimit (0.0f, 1.0f, (x - plot.getX()) / plot.getWidth())); }
@@ -667,21 +792,34 @@ private:
     float dbOf (float y) const { return (plot.getCentreY() - y) / (plot.getHeight() * 0.5f) * 18.0f; }
     juce::Point<float> node (int i) const
     {
-        if (i == 0) return { xOf (vals.low_cut), yOf (magDb (vals.low_cut, vals.low_cut, vals.high_cut)) };
-        if (i == 2) return { xOf (vals.high_cut), yOf (magDb (vals.high_cut, vals.low_cut, vals.high_cut)) };
-        return { xOf (vals.peak_freq), yOf (vals.peak_gain) };
+        switch (i)
+        {
+            case 0: return { xOf (vals.low_cut), yOf (magDb (vals.low_cut, vals.low_cut, vals.high_cut)) };
+            case 2: return { xOf (vals.high_cut), yOf (magDb (vals.high_cut, vals.low_cut, vals.high_cut)) };
+            case 1: return { xOf (vals.peak_freq), yOf (vals.peak_gain) };
+            case 3: return { xOf (vals.peak2_freq), yOf (vals.peak2_gain) };
+            case 4: return { xOf (vals.ls_freq), yOf (vals.ls_gain * 0.5f) };
+            default: return { xOf (vals.hs_freq), yOf (vals.hs_gain * 0.5f) };
+        }
     }
     int hit (juce::Point<float> p) const
     {
         int best = -1; float bd = 16.0f;
-        for (int i = 0; i < 3; ++i) { const float d = node (i).getDistanceFrom (p); if (d < bd) { bd = d; best = i; } }
+        for (int i = 0; i < 6; ++i) { const float d = node (i).getDistanceFrom (p); if (d < bd) { bd = d; best = i; } }
         return best;
     }
     std::vector<juce::RangedAudioParameter*> params (int i)
     {
-        if (i == 0) return { proc.apvts.getParameter (id::low_cut) };
-        if (i == 2) return { proc.apvts.getParameter (id::high_cut) };
-        return { proc.apvts.getParameter (id::peak_freq), proc.apvts.getParameter (id::peak_gain) };
+        auto& a = proc.apvts;
+        switch (i)
+        {
+            case 0: return { a.getParameter (id::low_cut) };
+            case 2: return { a.getParameter (id::high_cut) };
+            case 1: return { a.getParameter (id::peak_freq),  a.getParameter (id::peak_gain) };
+            case 3: return { a.getParameter (id::peak2_freq), a.getParameter (id::peak2_gain) };
+            case 4: return { a.getParameter (id::ls_freq),    a.getParameter (id::ls_gain) };
+            default: return { a.getParameter (id::hs_freq),   a.getParameter (id::hs_gain) };
+        }
     }
     void set (const char* pid, float v)
     {
@@ -694,6 +832,74 @@ private:
     float lastSig = -1.0f;
     juce::Rectangle<float> plot;
     int dragging = -1, hover = -1;
+};
+
+// ---------------------------------------------------------------- ordem do loop: lista arrastável
+//  Arrasta um módulo para cima/baixo; a ordem é guardada no parâmetro loop_order
+//  (índice da permutação, automatizável).
+class LoopOrderList : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    explicit LoopOrderList (APVTS& s)
+    {
+        auto* prm = s.getParameter (id::loop_order);
+        att = std::make_unique<juce::ParameterAttachment> (*prm, [this] (float v) { index = juce::jlimit (0, (int) loopPermutations().size() - 1, (int) std::lround (v)); repaint(); }, s.undoManager);
+        att->sendInitialUpdate();
+        setTooltip (tr ("Arrasta os módulos para mudar a ordem dentro do loop de feedback", "Drag the modules to change their order inside the feedback loop"));
+    }
+    static juce::String moduleName (int m)
+    {
+        switch (m) { case 0: return "Digital Grit"; case 1: return "Feedback EQ"; case 2: return tr ("Dispersão", "Dispersion"); case 3: return tr ("Difusão", "Diffusion"); default: return tr ("Fita", "Tape"); }
+    }
+    static juce::Colour moduleColour (int m)
+    {
+        switch (m) { case 0: return col::blue; case 1: return col::coral; case 2: return col::green; case 3: return col::violet; default: return col::gold; }
+    }
+    void paint (juce::Graphics& g) override
+    {
+        auto order = currentOrder();
+        for (int i = 0; i < 5; ++i)
+        {
+            auto b = rowRect (i).toFloat();
+            if (dragFrom >= 0 && i == dragFrom) b = b.withY (b.getY() + dragDy);
+            const int m = order[(size_t) i];
+            const bool me = m == 1 || i == dragFrom;
+            g.setColour (me ? col::coralDeep : col::panel2); g.fillRoundedRectangle (b, 6.0f);
+            g.setColour (i == dragFrom ? col::cyan : (me ? col::coral : col::line2)); g.drawRoundedRectangle (b.reduced (0.5f), 6.0f, 1.0f);
+            g.setColour (moduleColour (m)); g.fillRoundedRectangle (juce::Rectangle<float> (8, 8).withCentre ({ b.getX() + 14, b.getCentreY() }), 2.0f);
+            label (g, juce::String (i + 1) + ".  " + moduleName (m), b.withTrimmedLeft (26.0f), 13.5f, W::Semi, col::text, juce::Justification::centredLeft, 0.0f);
+            g.setColour (col::dim); g.setFont (font (12.0f));
+            g.drawText (juce::String::fromUTF8 ("\xe2\x8b\xae\xe2\x8b\xae"), b.withTrimmedRight (10.0f), juce::Justification::centredRight);
+        }
+    }
+    void mouseDown (const juce::MouseEvent& e) override { dragFrom = rowAt (e.y); dragDy = 0; startY = e.y; }
+    void mouseDrag (const juce::MouseEvent& e) override { if (dragFrom >= 0) { dragDy = (float) (e.y - startY); repaint(); } }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (dragFrom < 0) return;
+        const int to = juce::jlimit (0, 4, rowAt (juce::jlimit (0, getHeight() - 1, e.y)));
+        if (to != dragFrom) moveModule (dragFrom, to);
+        dragFrom = -1; dragDy = 0; repaint();
+    }
+    // move o módulo na posição 'from' para a posição 'to' (usado também pelos testes)
+    void moveModule (int from, int to)
+    {
+        auto order = currentOrder();
+        const auto m = order[(size_t) from];
+        std::vector<uint8_t> v (order.begin(), order.end());
+        v.erase (v.begin() + from); v.insert (v.begin() + to, m);
+        const auto& perms = loopPermutations();
+        for (size_t k = 0; k < perms.size(); ++k)
+            if (std::equal (v.begin(), v.end(), perms[k].begin())) { att->setValueAsCompleteGesture ((float) k); break; }
+    }
+    std::array<uint8_t, 5> currentOrder() const { return loopPermutations()[(size_t) index]; }
+
+private:
+    juce::Rectangle<int> rowRect (int i) const { return { 0, i * 33, getWidth(), 28 }; }
+    int rowAt (int y) const { return juce::jlimit (0, 4, y / 33); }
+    std::unique_ptr<juce::ParameterAttachment> att;
+    int index = 0, dragFrom = -1, startY = 0;
+    float dragDy = 0;
 };
 
 // ---------------------------------------------------------------- barra de redução do ducker
