@@ -56,7 +56,12 @@ inline juce::String num (double v, int decimals)
     /* v1.0 — vaga A */ \
     X(key_src) X(monitor) X(const_loud) \
     X(ls_freq) X(ls_gain) X(hs_freq) X(hs_gain) X(peak2_freq) X(peak2_gain) X(peak2_q) \
-    X(hiss) X(sat_hq)
+    X(hiss) X(sat_hq) \
+    /* v1.0 — vaga B */ \
+    X(throw_auto) X(throw_only) X(throw_now) X(throw_thresh) X(throw_len) X(throw_gap) \
+    X(morph) X(pitch) X(pitch_mix) X(reverse) X(model) X(heads) \
+    X(mm_rate) X(mm1_src) X(mm1_dst) X(mm1_amt) X(mm2_src) X(mm2_dst) X(mm2_amt) \
+    X(mm3_src) X(mm3_dst) X(mm3_amt) X(mm4_src) X(mm4_dst) X(mm4_amt)
 
 namespace id
 {
@@ -74,6 +79,25 @@ inline const std::vector<const char*>& paramIds()
     };
     return v;
 }
+
+// ---------------------------------------------------------------- matriz de modulação
+//  Fontes: LFO (seno), envelope da entrada, aleatório (sample & hold), envelope do sidechain.
+//  Destinos: "Time" é especial (multiplica o tempo final, ±1 oitava, funciona com SYNC);
+//  os outros movem o parâmetro na sua escala normalizada (±100 % = toda a escala).
+struct ModDest { const char* name; const char* pid; };
+inline const std::vector<ModDest>& modDestinations()
+{
+    static const std::vector<ModDest> d {
+        { "Off", nullptr }, { "Time", nullptr }, { "Feedback", "feedback" }, { "Mix", "mix" }, { "Rotation", "rotation" },
+        { "Low Cut", "low_cut" }, { "High Cut", "high_cut" }, { "Peak Freq", "peak_freq" }, { "Drive", "drive" },
+        { "Diffusion", "diff_amount" }, { "Out Width", "out_width" }, { "Pitch Mix", "pitch_mix" }, { "Reverse", "reverse" },
+        { "Mod Depth", "mod_depth" }, { "Wet Trim", "wet_trim" }, { "Tone", "tone" }, { "Space", "space" } };
+    return d;
+}
+inline juce::StringArray modDestinationNames() { juce::StringArray s; for (auto& d : modDestinations()) s.add (d.name); return s; }
+inline juce::StringArray modSourceNames() { return { "Off", "LFO", "Envelope", "Random", "Sidechain" }; }
+inline juce::StringArray headsNames() { return { "1", "2", "3", "1+2", "1+3", "2+3", "1+2+3" }; }
+inline int headsMaskFor (int choice) { static const int m[7] = { 1, 2, 4, 3, 5, 6, 7 }; return m[juce::jlimit (0, 6, choice)]; }
 
 inline const juce::StringArray& loopOrderNames()
 {
@@ -135,7 +159,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     addF (id::r_ratio, "R Time Ratio", skewed (0.25f, 2.0f, 1.0f), 1.0f, [] (float v, int) { return "R x " + String (v, 2); });
     addF (id::fb_balance, "Feedback L/R", { -100.0f, 100.0f }, 0.0f,
           [] (float v, int) { return std::abs (v) < 0.5f ? String ("C") : (v < 0 ? "L " : "R ") + num (std::abs (v), 0); });
-    addC (id::transition, "Time Transition", { "Tape Glide", "Crossfade" }, 0);
+    addC (id::transition, "Time Transition", { "Tape Glide", "Crossfade", "Stretch" }, 0);
     addF (id::glide, "Glide", skewed (10.0f, 2000.0f, 250.0f), 250.0f, ms);
 
     // espaço
@@ -206,6 +230,32 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     addF (id::peak2_q, "Peak 2 Q", skewed (0.3f, 10.0f, 1.5f), 1.0f, [] (float v, int) { return String (v, 2); });
     addF (id::hiss, "Tape Hiss", { 0.0f, 100.0f }, 0.0f, pct);
     addB (id::sat_hq, "Saturation HQ (2x)", false);
+
+    // --- v1.0 (vaga B)
+    addB (id::throw_auto, "Auto Throw", false);
+    addB (id::throw_only, "Throw Only", false);
+    addB (id::throw_now, "Throw", false);
+    addF (id::throw_thresh, "Throw Threshold", { -60.0f, 0.0f }, -30.0f, db);
+    addF (id::throw_len, "Throw Length", skewed (50.0f, 1000.0f, 250.0f), 250.0f, ms);
+    addF (id::throw_gap, "Throw Gap", skewed (30.0f, 500.0f, 120.0f), 120.0f, ms);
+    addF (id::morph, "Morph A-B", { 0.0f, 100.0f }, 0.0f, pct);
+    addF (id::pitch, "Pitch", { -24.0f, 24.0f }, 12.0f, [] (float v, int) { return (v > 0.05f ? "+" : "") + String (v, 1) + " st"; });
+    addF (id::pitch_mix, "Pitch Mix", { 0.0f, 100.0f }, 0.0f, pct);
+    addF (id::reverse, "Reverse", { 0.0f, 100.0f }, 0.0f, pct);
+    addC (id::model, "Model", { "Tape", "BBD", "Multi-Head", "Cassette", "Digital 80s" }, 0);
+    addC (id::heads, "Heads", headsNames(), 6);
+    addF (id::mm_rate, "Matrix LFO Rate", skewed (0.02f, 20.0f, 1.0f), 0.5f, [] (float v, int) { return String (v, 2) + " Hz"; });
+    for (int k = 1; k <= 4; ++k)
+    {
+        const auto n = String (k);
+        static const char* src[4] = { id::mm1_src, id::mm2_src, id::mm3_src, id::mm4_src };
+        static const char* dst[4] = { id::mm1_dst, id::mm2_dst, id::mm3_dst, id::mm4_dst };
+        static const char* amt[4] = { id::mm1_amt, id::mm2_amt, id::mm3_amt, id::mm4_amt };
+        p.push_back (std::make_unique<AudioParameterChoice> (pid (src[k - 1]), "Mod " + n + " Source", modSourceNames(), 0));
+        p.push_back (std::make_unique<AudioParameterChoice> (pid (dst[k - 1]), "Mod " + n + " Dest", modDestinationNames(), 0));
+        p.push_back (std::make_unique<AudioParameterFloat> (pid (amt[k - 1]), "Mod " + n + " Amount", NormalisableRange<float> (-100.0f, 100.0f), 0.0f,
+                     AudioParameterFloatAttributes().withStringFromValueFunction (bip)));
+    }
 
     return { p.begin(), p.end() };
 }
@@ -291,7 +341,7 @@ inline Params toEngine (const Values& v, double bpm, double sr)
     p.feedback = v.feedback * 0.01f;
     p.fbBalance = v.fb_balance * 0.01f;
     p.routing = (Routing) juce::jlimit (0, 2, (int) std::lround (v.routing));
-    p.transition = (Transition) juce::jlimit (0, 1, (int) std::lround (v.transition));
+    p.transition = (Transition) juce::jlimit (0, 2, (int) std::lround (v.transition));
     p.glideMs = v.glide;
     p.freeze = v.freeze > 0.5f;
 
@@ -341,6 +391,12 @@ inline Params toEngine (const Values& v, double bpm, double sr)
     p.constLoudness = v.const_loud > 0.5f;
     p.hiss = v.hiss * 0.01f;
     p.satHQ = v.sat_hq > 0.5f;
+    p.throwAuto = v.throw_auto > 0.5f; p.throwOnly = v.throw_only > 0.5f; p.throwNow = v.throw_now > 0.5f;
+    p.throwThreshDb = v.throw_thresh; p.throwLenMs = v.throw_len; p.throwGapMs = v.throw_gap;
+    p.pitchSemi = v.pitch; p.pitchMix = v.pitch_mix * 0.01f;
+    p.reverse = v.reverse * 0.01f;
+    p.model = (Model) juce::jlimit (0, 4, (int) std::lround (v.model));
+    p.headsMask = headsMaskFor ((int) std::lround (v.heads));
 
     // --- macros
     const float s = juce::jlimit (0.0f, 1.0f, v.space * 0.01f);

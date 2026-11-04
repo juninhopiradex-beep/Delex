@@ -398,7 +398,7 @@ private:
         addAndMakeVisible (advView);
         advView.addAndMakeVisible (echoC);
         advView.addAndMakeVisible (phaseC);
-        const juce::StringArray names { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "UTILITIES" };
+        const juce::StringArray names { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "UTILITIES" };
         for (int i = 0; i < names.size(); ++i)
         {
             auto* b = tabs.add (new juce::TextButton (names[i]));
@@ -417,7 +417,9 @@ private:
         buildEq (*pages[2]);
         buildMotion (*pages[3]);
         buildTexture (*pages[4]);
-        buildUtilities (*pages[5]);
+        buildMod (*pages[5]);
+        buildPerform (*pages[6]);
+        buildUtilities (*pages[7]);
     }
 
     using K = Knob::Size;
@@ -444,8 +446,8 @@ private:
         tap.setTooltip (tr ("Toca ao ritmo para definir o tempo", "Tap in rhythm to set the time"));
         auto& route = p.add (std::make_unique<Segmented> (s, id::routing, juce::StringArray { "DUAL", "PING-PONG", "MONO" }, col::coral,
                              tr ("Dual: L e R independentes · Ping-Pong: ecos alternam entre lados · Mono: soma em mono", "Dual: independent L and R · Ping-Pong: echoes alternate between sides · Mono: summed to mono")));
-        auto& trans = p.add (std::make_unique<Segmented> (s, id::transition, juce::StringArray { tr ("FITA (GLIDE)", "TAPE (GLIDE)"), "CROSSFADE" }, col::coral,
-                             tr ("Fita: o tempo desliza com mudança de afinação · Crossfade: troca suave sem mudar a afinação", "Tape: the time glides with a pitch change · Crossfade: smooth switch without changing pitch")));
+        auto& trans = p.add (std::make_unique<Segmented> (s, id::transition, juce::StringArray { tr ("FITA (GLIDE)", "TAPE (GLIDE)"), "CROSSFADE", "STRETCH" }, col::coral,
+                             tr ("Fita: o tempo desliza com mudança de afinação · Crossfade: troca suave sem mudar a afinação · Stretch: o tempo desliza ao ritmo do GLIDE sem mudar a afinação", "Tape: the time glides with a pitch change · Crossfade: smooth switch without changing pitch · Stretch: the time glides at the GLIDE speed without changing pitch")));
         advTime = &t; advDiv = &div;
 
         p.extraPaint = [this, &p] (juce::Graphics& g)
@@ -648,23 +650,152 @@ private:
         auto& pd = p.add (knob (s, id::pre_drive, "PRE-DRIVE", "", col::text, K::Small, true, tr ("Ganho antes do delay (empurra a saturação)", "Gain before the delay (pushes the saturation)")));
         auto& hi = p.add (knob (s, id::hiss, "HISS", "", col::gold, K::Small, false, tr ("Ruído de fita (rosa) só nos ecos — dá vida a ecos muito limpos", "Tape noise (pink) on the echoes only — brings very clean echoes to life")));
         auto& hq = p.add (std::make_unique<ToggleChip> (s, id::sat_hq, "HQ 2x", col::gold, tr ("Saturação com oversampling 2× (menos aliasing em drive alto; +14 amostras compensadas no tempo)", "Saturation with 2× oversampling (less aliasing at high drive; +14 samples compensated in the time)")));
-        p.extraPaint = [&p] (juce::Graphics& g)
+        auto& model = p.add (std::make_unique<Segmented> (s, id::model, juce::StringArray { tr ("FITA", "TAPE"), "BBD", tr ("MULTI-CAB.", "MULTI-HEAD"), tr ("CASSETE", "CASSETTE"), "DIGITAL 80s" }, col::gold,
+                             tr ("Modelo de carácter do loop (combina com DRIVE, WARMTH e o EQ)", "Character model of the loop (combines with DRIVE, WARMTH and the EQ)")));
+        auto& heads = p.add (std::make_unique<ChoiceBox> (s, id::heads, tr ("Cabeças de leitura ligadas (1 = 1/3 do tempo, 2 = 2/3, 3 = tempo inteiro)", "Playback heads on (1 = 1/3 of the time, 2 = 2/3, 3 = full time)"),
+                             juce::StringArray { tr ("CABEÇA 1", "HEAD 1"), tr ("CABEÇA 2", "HEAD 2"), tr ("CABEÇA 3", "HEAD 3"), tr ("CABEÇAS 1+2", "HEADS 1+2"), tr ("CABEÇAS 1+3", "HEADS 1+3"), tr ("CABEÇAS 2+3", "HEADS 2+3"), tr ("CABEÇAS 1+2+3", "HEADS 1+2+3") }));
+        textureHeads = &heads;
+        p.extraPaint = [this, &p] (juce::Graphics& g)
         {
-            auto r = p.sections[2].r.toFloat().withTrimmedLeft (480.0f).reduced (14.0f).withTrimmedTop (76.0f).withWidth (420.0f);
+            auto r = p.sections[3].r.toFloat().reduced (14.0f).withTrimmedTop (70.0f);
+            const int m = juce::jlimit (0, 4, (int) std::lround (proc.raw.load().model));
+            static const char* pt[5] = { "Fita: saturação suave e wow (o som clássico do DELEX).",
+                                         "BBD: delay analógico de chips. Quanto mais longo o tempo, mais escuro; comprime ligeiramente.",
+                                         "Multi-cabeça: eco de fita com três cabeças a 1/3, 2/3 e ao tempo inteiro. Escolhe as cabeças.",
+                                         "Cassete: banda mais estreita, wow extra e pequenas variações de nível.",
+                                         "Digital 80s: rack digital antigo — 12 bits e banda até 12 kHz, ecos limpos mas com grão." };
+            static const char* en[5] = { "Tape: soft saturation and wow (the classic DELEX sound).",
+                                         "BBD: analog chip delay. The longer the time, the darker; slight compression.",
+                                         "Multi-head: tape echo with three heads at 1/3, 2/3 and the full time. Choose the heads.",
+                                         "Cassette: narrower band, extra wow and small level drifts.",
+                                         "Digital 80s: vintage digital rack — 12 bits and bandwidth up to 12 kHz, clean echoes with grain." };
             g.setColour (col::muted); g.setFont (font (12.5f));
-            g.drawFittedText (tr ("HQ 2x: a saturação de fita corre a dobrar a taxa de amostragem. Usa em drive alto ou na mistura final; desliga se precisares de poupar CPU.",
-                                  "HQ 2x: the tape saturation runs at twice the sample rate. Use it at high drive or on the final mix; turn it off to save CPU."),
-                              r.toNearestInt(), juce::Justification::topLeft, 4, 1.0f);
+            g.drawFittedText (tr (pt[m], en[m]), r.withTrimmedRight (130.0f).toNearestInt(), juce::Justification::topLeft, 3, 1.0f);
         };
-        p.layout = [&p, &wa, &dr, &bi, &ra, &ji, &gm, &ch, &pd, &hi, &hq]
+        p.layout = [&p, &wa, &dr, &bi, &ra, &ji, &gm, &ch, &pd, &hi, &hq, &model, &heads]
         {
-            p.sections = { { { 0, 0, 300, 190 }, "TAPE SATURATION" }, { { 312, 0, 652, 190 }, "DIGITAL GRIT" }, { { 0, 202, 964, 190 }, tr ("CARÁCTER, ENTRADA E RUÍDO", "CHARACTER, INPUT AND NOISE") } };
+            p.sections = { { { 0, 0, 300, 190 }, "TAPE SATURATION" }, { { 312, 0, 652, 190 }, "DIGITAL GRIT" },
+                           { { 0, 202, 470, 190 }, tr ("CARÁCTER, ENTRADA E RUÍDO", "CHARACTER, INPUT AND NOISE") }, { { 482, 202, 482, 190 }, tr ("MODELO", "MODEL") } };
             row ({ &wa, &dr }, { 10, 40, 280, 140 });
             row ({ &bi, &ra, &ji, &gm }, { 322, 40, 632, 140 });
             row ({ &ch, &pd, &hi }, { 10, 240, 450, 140 });
-            hq.setBounds (494, 240, 100, 28);
+            model.setBounds (494, 232, 458, 30);
+            hq.setBounds (852, 340, 100, 28);
+            heads.setBounds (852, 302, 100, 28);
         };
     }
+
+    // ------------------------------------------------------------------ MOD: matriz + morph
+    void buildMod (Page& p)
+    {
+        std::vector<juce::Component*> rowsC;
+        static const char* srcIds[4] = { id::mm1_src, id::mm2_src, id::mm3_src, id::mm4_src };
+        static const char* dstIds[4] = { id::mm1_dst, id::mm2_dst, id::mm3_dst, id::mm4_dst };
+        static const char* amtIds[4] = { id::mm1_amt, id::mm2_amt, id::mm3_amt, id::mm4_amt };
+        const juce::StringArray srcNames { tr ("—", "—"), "LFO", tr ("ENVELOPE", "ENVELOPE"), tr ("ALEATÓRIO", "RANDOM"), "SIDECHAIN" };
+        const juce::StringArray dstNames { "—", tr ("TEMPO", "TIME"), "FEEDBACK", "MIX", "ROTATION", "LOW CUT", "HIGH CUT", "PEAK FREQ", "DRIVE",
+                                           tr ("DIFUSÃO", "DIFFUSION"), "OUT WIDTH", "PITCH MIX", "REVERSE", "MOD DEPTH", "WET TRIM", "TONE", "SPACE" };
+        for (int k = 0; k < 4; ++k)
+        {
+            auto& sb = p.add (std::make_unique<ChoiceBox> (s, srcIds[k], tr ("Fonte: LFO (seno, RATE abaixo) · Envelope da entrada · Aleatório (sample & hold ao RATE) · Envelope do sidechain",
+                                                                           "Source: LFO (sine, RATE below) · input envelope · random (sample & hold at RATE) · sidechain envelope"), srcNames));
+            auto& db = p.add (std::make_unique<ChoiceBox> (s, dstIds[k], tr ("Destino. TEMPO multiplica o tempo final (±1 oitava, também com SYNC)", "Destination. TIME multiplies the final time (±1 octave, also with SYNC)"), dstNames));
+            auto& am = p.add (std::make_unique<AmountSlider> (s, amtIds[k], col::violet, tr ("Quantidade (±100 % = toda a escala do destino)", "Amount (±100 % = the destination's full range)")));
+            auto& mt = p.add (std::make_unique<SourceMeter> (proc, k));
+            srcMeters.push_back (&mt);
+            for (auto* c : std::initializer_list<juce::Component*> { &sb, &db, &am, &mt }) rowsC.push_back (c);
+        }
+        auto& rate = p.add (knob (s, id::mm_rate, "LFO RATE", "", col::violet, K::Small, false, tr ("Velocidade do LFO e do aleatório da matriz", "Speed of the matrix LFO and random")));
+        auto& morph = p.add (knob (s, id::morph, "MORPH A-B", "", col::cyan, K::Small, false,
+                                   tr ("Desliza todos os parâmetros do slot actual para os do outro slot (A/B no cabeçalho). Automatiza para transições entre dois sons.",
+                                       "Slides every parameter from the current slot to the other slot's (A/B in the header). Automate it for transitions between two sounds.")));
+        p.extraPaint = [&p] (juce::Graphics& g)
+        {
+            g.setColour (col::muted);
+            for (int k = 0; k < 4; ++k)
+                label (g, String (k + 1), { 16.0f, 52.0f + 76.0f * (float) k, 20.0f, 28.0f }, 15.0f, W::Bold, col::violet, juce::Justification::centredLeft, 0.0f);
+            label (g, tr ("FONTE", "SOURCE"), { 44.0f, 30.0f, 140.0f, 14.0f }, 10.5f, W::Semi, col::dim, juce::Justification::centredLeft, 0.16f);
+            label (g, tr ("DESTINO", "DESTINATION"), { 192.0f, 30.0f, 150.0f, 14.0f }, 10.5f, W::Semi, col::dim, juce::Justification::centredLeft, 0.16f);
+            label (g, tr ("QUANTIDADE", "AMOUNT"), { 350.0f, 30.0f, 200.0f, 14.0f }, 10.5f, W::Semi, col::dim, juce::Justification::centredLeft, 0.16f);
+            auto r = p.sections[1].r.toFloat().reduced (14.0f).withTrimmedTop (196.0f);
+            g.setColour (col::muted); g.setFont (font (12.5f));
+            g.drawFittedText (tr ("1. Faz um som em A.  2. Carrega em B e faz outro.  3. Volta a A e roda o MORPH: os dois sons fundem-se. Botões e escolhas trocam a meio.",
+                                  "1. Make a sound on A.  2. Press B and make another.  3. Go back to A and turn MORPH: the two sounds blend. Switches and choices flip halfway."),
+                              r.toNearestInt(), juce::Justification::topLeft, 5, 1.0f);
+        };
+        p.layout = [&p, rowsC, &rate, &morph]
+        {
+            p.sections = { { { 0, 0, 712, 392 }, tr ("MATRIZ DE MODULAÇÃO", "MODULATION MATRIX") }, { { 724, 0, 240, 392 }, u8 ("MORPH A ↔ B") } };
+            for (int k = 0; k < 4; ++k)
+            {
+                const int y = 52 + 76 * k;
+                rowsC[(size_t) k * 4 + 0]->setBounds (44, y, 140, 28);
+                rowsC[(size_t) k * 4 + 1]->setBounds (192, y, 150, 28);
+                rowsC[(size_t) k * 4 + 2]->setBounds (350, y, 220, 28);
+                rowsC[(size_t) k * 4 + 3]->setBounds (44, y + 34, 298, 10);
+            }
+            rate.setBounds (590, 140, 110, 130);
+            morph.setBounds (774, 40, 140, 150);
+        };
+    }
+    std::vector<SourceMeter*> srcMeters;
+    ChoiceBox* textureHeads = nullptr;
+
+    // ------------------------------------------------------------------ PERFORM: auto-throw, pads, pitch, reverse
+    void buildPerform (Page& p)
+    {
+        auto& ta = p.add (std::make_unique<ToggleChip> (s, id::throw_auto, "AUTO-THROW", col::coral,
+                          tr ("Detecta o fim de cada frase e atira a última palavra para o delay — no tempo certo, sem automação", "Detects the end of each phrase and throws the last word into the delay — on time, no automation")));
+        auto& to = p.add (std::make_unique<ToggleChip> (s, id::throw_only, tr ("SÓ THROWS", "THROWS ONLY"), col::coral,
+                          tr ("A entrada só entra no delay nos throws (auto, pad THROW ou parâmetro Throw automatizado)", "The input only enters the delay on throws (auto, THROW pad or automated Throw parameter)")));
+        auto& th = p.add (knob (s, id::throw_thresh, "THRESHOLD", "", col::coral, K::Small, false, tr ("Nível acima do qual a voz conta como 'a cantar'", "Level above which the vocal counts as 'singing'")));
+        auto& tl = p.add (knob (s, id::throw_len, tr ("TAMANHO", "LENGTH"), "", col::coral, K::Small, false, tr ("Quanto do fim da frase é atirado (≈ uma palavra: 200–350 ms)", "How much of the end of the phrase is thrown (≈ one word: 200–350 ms)")));
+        auto& tg = p.add (knob (s, id::throw_gap, tr ("PAUSA", "GAP"), "", col::coral, K::Small, false, tr ("Silêncio mínimo para considerar que a frase acabou", "Minimum silence to consider the phrase finished")));
+        const char* padNames[4] = { "THROW", "FREEZE", "SPIN", "STOP" };
+        const char* notes[4] = { "C1 · 36", "C#1 · 37", "D1 · 38", "D#1 · 39" };
+        const juce::Colour padCols[4] = { col::coral, col::cyan, col::violet, col::gold };
+        const juce::String padTips[4] = {
+            tr ("Atira já a última frase para o delay e mantém o envio aberto enquanto premires", "Throws the last phrase into the delay now and keeps the send open while held"),
+            tr ("Congela a cauda enquanto premires", "Freezes the tail while held"),
+            tr ("Os ecos rodam à volta do estéreo (uma volta por compasso) enquanto premires", "The echoes spin around the stereo field (one turn per bar) while held"),
+            tr ("Tape stop: os ecos abrandam até parar; ao soltar voltam", "Tape stop: the echoes slow down to a halt; they come back on release") };
+        for (int i = 0; i < 4; ++i)
+        {
+            auto& pb = p.add (std::make_unique<PadButton> (proc, i, padNames[i], u8 (notes[i]), padCols[i], padTips[i] + tr ("  (MIDI: nota ", "  (MIDI: note ") + u8 (notes[i]) + ")"));
+            pads.push_back (&pb);
+        }
+        auto& pi = p.add (knob (s, id::pitch, "PITCH", "", col::cyan, K::Small, true, tr ("Afinação dentro do loop: cada repetição sobe (ou desce) de novo. +12 = shimmer", "Pitch inside the loop: each repeat rises (or falls) again. +12 = shimmer")));
+        auto& pm = p.add (knob (s, id::pitch_mix, "PITCH MIX", "", col::cyan, K::Small, false, tr ("Quanto do sinal afinado circula no loop", "How much of the pitched signal circulates in the loop")));
+        auto& rv = p.add (knob (s, id::reverse, "REVERSE", "", col::green, K::Small, false, tr ("Ecos ao contrário (segmentos do tamanho do tempo do delay)", "Reversed echoes (segments as long as the delay time)")));
+        p.extraPaint = [this, &p] (juce::Graphics& g)
+        {
+            const int c = proc.throwCounter.load();
+            if (c != lastThrows) { lastThrows = c; throwFlashUntil = juce::Time::getMillisecondCounter() + 350; }
+            const bool flash = juce::Time::getMillisecondCounter() < throwFlashUntil;
+            g.setColour (flash ? col::coral : col::line2);
+            g.fillEllipse (juce::Rectangle<float> (10, 10).withCentre ({ 440.0f, 17.0f }));
+            label (g, "THROW", { 450.0f, 10.0f, 60.0f, 14.0f }, 10.5f, W::Semi, flash ? col::coral : col::dim, juce::Justification::centredLeft, 0.12f);
+            auto r = p.sections[1].r.toFloat().reduced (14.0f).withTrimmedTop (150.0f);
+            g.setColour (col::muted); g.setFont (font (12.0f));
+            g.drawFittedText (tr ("Liga um teclado MIDI à pista do DELEX: notas C1–D#1 tocam os pads. O parâmetro Throw também se automatiza no DAW.",
+                                  "Route a MIDI keyboard to the DELEX track: notes C1–D#1 play the pads. The Throw parameter can also be automated in the DAW."),
+                              r.toNearestInt(), juce::Justification::topLeft, 3, 1.0f);
+        };
+        p.layout = [this, &p, &ta, &to, &th, &tl, &tg, &pi, &pm, &rv]
+        {
+            p.sections = { { { 0, 0, 520, 190 }, "AUTO-THROW" }, { { 532, 0, 432, 190 }, "PADS" },
+                           { { 0, 202, 520, 190 }, tr ("PITCH / SHIMMER", "PITCH / SHIMMER") }, { { 532, 202, 432, 190 }, "REVERSE" } };
+            ta.setBounds (120, 4, 110, 26); to.setBounds (236, 4, 110, 26);
+            row ({ &th, &tl, &tg }, { 10, 40, 500, 140 });
+            int x = 546;
+            for (auto* pb : pads) { pb->setBounds (x, 36, 96, 100); x += 104; }
+            row ({ &pi, &pm }, { 10, 240, 330, 140 });
+            rv.setBounds (560, 240, 130, 140);
+        };
+    }
+    std::vector<PadButton*> pads;
+    int lastThrows = 0;
+    juce::uint32 throwFlashUntil = 0;
 
     void buildUtilities (Page& p)
     {
@@ -840,6 +971,9 @@ private:
         {
             echoC.tick(); phaseC.tick();
             if (eq != nullptr && pages[2]->isVisible()) eq->tick();
+            if (pages[5]->isVisible()) for (auto* m : srcMeters) m->tick();
+            if (pages[6]->isVisible()) { for (auto* pb : pads) pb->tick(); pages[6]->repaint (430, 4, 90, 26); }
+            if (textureHeads != nullptr) textureHeads->setVisible (std::lround (v.model) == 2);
             if (++slowTick % 6 == 0) pages[currentTab]->repaint();   // textos dinâmicos (ordem, limitador, matriz)
         }
         grBar.tick();

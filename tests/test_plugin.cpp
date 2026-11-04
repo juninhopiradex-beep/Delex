@@ -250,10 +250,10 @@ static void testControls (DelexProcessor& p)
     auto& ui = *ed;
     // vistas e abas
     check (press (ui, "ADVANCED") && p.advancedView, "ADVANCED abre a vista avançada");
-    const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "UTILITIES" };
+    const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "UTILITIES" };
     int tabOk = 0;
-    for (int i = 0; i < 6; ++i) if (press (ui, tabs[i]) && p.advancedTab == i) ++tabOk;
-    check (tabOk == 6, "6 abas abrem a página certa", tabOk, 6);
+    for (int i = 0; i < 8; ++i) if (press (ui, tabs[i]) && p.advancedTab == i) ++tabOk;
+    check (tabOk == 8, "8 abas abrem a página certa", tabOk, 8);
     check (press (ui, "SIMPLE") && ! p.advancedView, "SIMPLE volta à vista simples");
 
     // estilos
@@ -669,6 +669,48 @@ int main()
         setParam (p, delex::id::loop_order, 0.0f);
     }
 
+    // 7) vaga B: pads por MIDI, morph A↔B, matriz de modulação
+    std::printf ("Vaga B (pads, morph, matriz)\n");
+    {
+        juce::AudioBuffer<float> b (2, 64); b.clear();
+        juce::MidiBuffer m; m.addEvent (juce::MidiMessage::noteOn (1, 37, (juce::uint8) 100), 0);
+        p.processBlock (b, m);
+        check (p.padActive (DelexProcessor::PadFreeze), "nota 37 liga o pad FREEZE");
+        m.clear(); m.addEvent (juce::MidiMessage::noteOff (1, 37), 0);
+        p.processBlock (b, m);
+        check (! p.padActive (DelexProcessor::PadFreeze), "nota 37 solta o pad FREEZE");
+        p.setPad (DelexProcessor::PadStop, true);
+        check (p.padActive (DelexProcessor::PadStop), "pad STOP pela interface");
+        p.setPad (DelexProcessor::PadStop, false);
+
+        // morph: A com feedback 10, B com 90 → a 50 % o motor recebe ~50
+        DelexProcessor d; d.setRateAndBufferSizeDetails (48000.0, 256); d.prepareToPlay (48000.0, 256);
+        setParam (d, delex::id::feedback, 10.0f);
+        d.selectSlot (1); setParam (d, delex::id::feedback, 90.0f); d.selectSlot (0);
+        setParam (d, delex::id::morph, 50.0f);
+        d.processBlock (b, m);
+        check (std::abs (d.lastChunkValues.feedback - 50.0f) < 0.6f, "morph 50 %: feedback efectivo a meio de A e B", d.lastChunkValues.feedback, 50.0);
+        check (std::abs (plain (d, delex::id::feedback) - 10.0f) < 0.01f, "morph não mexe nos knobs (só no som)", plain (d, delex::id::feedback), 10.0);
+        setParam (d, delex::id::morph, 0.0f);
+
+        // matriz: guardar e restaurar
+        setParam (d, delex::id::mm1_src, 1.0f); setParam (d, delex::id::mm1_dst, 4.0f); setParam (d, delex::id::mm1_amt, 60.0f);
+        setParam (d, delex::id::mm_rate, 2.0f);
+        float lo = 1e9f, hi = -1e9f;
+        for (int k = 0; k < 800; ++k) { d.processBlock (b, m); lo = juce::jmin (lo, d.lastChunkValues.rotation); hi = juce::jmax (hi, d.lastChunkValues.rotation); }
+        check (hi - lo > 300.0f, "LFO → ROTATION a ±60 % move a rotação", hi - lo, 432.0);
+        // matriz TEMPO não mexe no parâmetro, mas o motor recebe outro tempo (testado no núcleo); envelope segue a entrada
+        setParam (d, delex::id::mm2_src, 2.0f); setParam (d, delex::id::mm2_dst, 3.0f); setParam (d, delex::id::mm2_amt, 50.0f);
+        setParam (d, delex::id::mix, 20.0f);
+        juce::AudioBuffer<float> loud (2, 64);
+        for (int k = 0; k < 100; ++k) { for (int c = 0; c < 2; ++c) for (int i = 0; i < 64; ++i) loud.setSample (c, i, 0.9f * std::sin (0.1f * (float) i)); d.processBlock (loud, m); }
+        check (d.lastChunkValues.mix > 55.0f, "envelope da entrada → MIX abre o mix", d.lastChunkValues.mix, 69.0);
+        juce::MemoryBlock st; d.getStateInformation (st);
+        DelexProcessor q; q.setStateInformation (st.getData(), (int) st.getSize());
+        check (std::lround (plain (q, delex::id::mm1_dst)) == 4 && std::abs (plain (q, delex::id::mm1_amt) - 60.0f) < 0.01f, "matriz guardada na sessão");
+        check (std::abs (d.modSourceView[0].load()) <= 1.0f, "fonte LFO da matriz a correr", d.modSourceView[0].load(), 0.0);
+    }
+
     testControls (p);
 
     // matriz de parâmetros (documentação gerada a partir do código)
@@ -691,7 +733,7 @@ int main()
                    << " | " << curve << " | " << (r->isAutomatable() ? juce::String ("sim") : u8 ("não")) << " |\n";
             }
         juce::File (juce::File::getCurrentWorkingDirectory().getChildFile ("docs/PARAMETROS.md")).replaceWithText (md);
-        check (count == 73, "parametros documentados", count, 73);
+        check (count == 98, "parametros documentados", count, 98);
     }
 
     // 6) capturas da interface
@@ -709,10 +751,10 @@ int main()
             feedLive(); pump (200); feedLive();
             snapshot (*ed, "docs/ui_simple.png");
             check (clickButton (*ed, "ADVANCED"), "mudar para a vista ADVANCED");
-            const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "UTILITIES" };
+            const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "UTILITIES" };
             const char* files[] = { "docs/ui_adv_timing.png", "docs/ui_adv_space.png", "docs/ui_adv_feedback_eq.png",
-                                    "docs/ui_adv_motion.png", "docs/ui_adv_texture.png", "docs/ui_adv_utilities.png" };
-            for (int i = 0; i < 6; ++i) { check (clickButton (*ed, tabs[i]), tabs[i]); feedLive(); snapshot (*ed, files[i]); }
+                                    "docs/ui_adv_motion.png", "docs/ui_adv_texture.png", "docs/ui_adv_mod.png", "docs/ui_adv_perform.png", "docs/ui_adv_utilities.png" };
+            for (int i = 0; i < 8; ++i) { check (clickButton (*ed, tabs[i]), tabs[i]); feedLive(); snapshot (*ed, files[i]); }
             clickButton (*ed, "SIMPLE");
         }
         // ecrã de senha

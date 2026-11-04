@@ -407,6 +407,160 @@ int main()
         std::printf ("[ok] hiss no máximo: %.1f dBFS RMS\n", db);
     }
 
+    // ===================================================================== vaga B
+    auto zcFreq = [] (const std::vector<float>& v, int from, int to)
+    {
+        int zc = 0; for (int i = from + 1; i < to; ++i) if ((v[(size_t) i - 1] < 0) != (v[(size_t) i] < 0)) ++zc;
+        return 0.5 * zc * SR / (to - from);
+    };
+    // B1) Auto-Throw: só a última palavra da frase vai para o delay, no tempo certo
+    {
+        auto run = [] (bool autoOn)
+        {
+            Params p = wetOnly(); p.timeMsL = p.timeMsR = 600; p.throwOnly = true; p.throwAuto = autoOn;
+            p.throwLenMs = 250; p.throwGapMs = 120; p.throwThreshDb = -30;
+            Run r (p);
+            std::mt19937 g (5); std::uniform_real_distribution<float> u (-0.5f, 0.5f);
+            r.go (72000, [&] (int i, float& l, float& rr) { l = rr = i < 14400 ? u (g) : 0.0f; });   // frase de 300 ms
+            return r;
+        };
+        auto on = run (true), off = run (false);
+        const double eEcho = energy (on.L, 31680, 43200);          // 660–900 ms: fim da frase + 600 ms
+        const double eEarly = energy (on.L, 28800, 30720);         // 600–640 ms: início da frase (não atirado)
+        const double eIn = energy (on.L, 0, 1);
+        (void) eIn;
+        const double eOff = energy (off.L, 0, 72000);
+        const double rmsEcho = std::sqrt (eEcho / 11520.0);
+        CHECK (rmsEcho > 0.1, "throw: eco da última palavra fraco (rms %f)", rmsEcho);
+        CHECK (eEarly < eEcho * 0.02, "throw: início da frase também foi atirado (%f vs %f)", eEarly, eEcho);
+        CHECK (eOff < 1e-6, "só throws sem auto: a entrada passou para o delay (%f)", eOff);
+        CHECK (on.e.throwCount() == 1, "throw: %d throws em vez de 1", on.e.throwCount());
+        std::printf ("[ok] auto-throw: eco rms %.3f nos 660–900 ms · início da frase %.1f dB abaixo · sem auto: silêncio\n",
+                     rmsEcho, 10 * std::log10 (eEcho / std::max (eEarly, 1e-12)));
+    }
+    // B2) Reverse: um som que decai volta a crescer
+    {
+        auto run = [] (float rev)
+        {
+            Params p = wetOnly(); p.timeMsL = p.timeMsR = 300; p.reverse = rev;
+            Run r (p);
+            r.go (72000, [] (int i, float& l, float& rr) { l = rr = i < 4800 ? std::sin (0.13f * (float) i) * std::exp (-(float) i / 900.0f) : 0.0f; });
+            const float pk = peakAbs (r.L, 4800, 72000);
+            int on = 4800; while (on < 72000 && std::fabs (r.L[(size_t) on]) < 0.05f * pk) ++on;
+            return std::make_pair (argmaxAbs (r.L, 4800, 72000) - on, pk);
+        };
+        const auto fwd = run (0), rev = run (1);
+        CHECK (fwd.first < 480, "sem reverse o eco devia atacar logo (%d amostras)", fwd.first);
+        CHECK (rev.first > 1900 && rev.second > 0.2f, "reverse: o eco não cresce (%d amostras, pico %f)", rev.first, rev.second);
+        std::printf ("[ok] reverse: pico %d ms depois do início do eco (normal: %d ms)\n", rev.first / 48, fwd.first / 48);
+    }
+    // B3) Pitch +12: o eco sai uma oitava acima
+    {
+        Params p = wetOnly(); p.timeMsL = p.timeMsR = 200; p.pitchSemi = 12; p.pitchMix = 1;
+        Run r (p); r.go (48000, [] (int i, float& l, float& rr) { l = rr = 0.4f * std::sin (2.0f * 3.14159265f * 440.0f * (float) i / 48000.0f); });
+        const double f = zcFreq (r.L, 24000, 48000);
+        CHECK (std::fabs (f - 880.0) < 25.0, "pitch +12: %f Hz em vez de 880", f);
+        std::printf ("[ok] pitch +12: 440 Hz → %.0f Hz no eco\n", f);
+    }
+    // B4) Stretch: muda o tempo sem mudar a afinação (o glide de fita muda)
+    {
+        auto run = [&] (Transition t)
+        {
+            Params p = wetOnly(); p.timeMsL = p.timeMsR = 300; p.transition = t; p.glideMs = 400;
+            Engine e; e.prepare (SR, 256); e.setParams (p);
+            std::vector<float> out; std::vector<float> l (256), r (256);
+            for (int b = 0; b < 400; ++b)
+            {
+                if (b == 200) { p.timeMsL = p.timeMsR = 500; e.setParams (p); }
+                for (int i = 0; i < 256; ++i) l[(size_t) i] = r[(size_t) i] = 0.4f * std::sin (2.0f * 3.14159265f * 1000.0f * (float) (b * 256 + i) / 48000.0f);
+                e.process (l.data(), r.data(), 256);
+                out.insert (out.end(), l.begin(), l.end());
+            }
+            return zcFreq (out, 200 * 256 + 2400, 200 * 256 + 12000);   // 50–250 ms depois da mudança
+        };
+        const double fs = run (Transition::Stretch), ft = run (Transition::TapeGlide);
+        CHECK (std::fabs (fs - 1000.0) < 30.0, "stretch mudou a afinação: %f Hz", fs);
+        CHECK (ft < 920.0, "glide de fita devia baixar a afinação: %f Hz", ft);
+        std::printf ("[ok] stretch: %.0f Hz durante a mudança de tempo (glide de fita: %.0f Hz)\n", fs, ft);
+    }
+    // B5) Modelos: BBD e Digital 80s escurecem; todos finitos e estáveis com feedback alto
+    {
+        auto hf = [] (Model m, float fb)
+        {
+            Params p = wetOnly(); p.timeMsL = p.timeMsR = 800; p.model = m; p.feedback = fb; p.highCutHz = 20000; p.lowCutHz = 20;
+            Run r (p);
+            std::mt19937 g (9); std::uniform_real_distribution<float> u (-0.3f, 0.3f);
+            r.go (96000, [&] (int i, float& l, float& rr) { l = rr = i < 9600 ? u (g) : 0.0f; });
+            double d = 0, e2 = 0;
+            for (int i = 38400 + 1; i < 48000; ++i) { const double x = r.L[(size_t) i] - r.L[(size_t) i - 1]; d += x * x; e2 += r.L[(size_t) i] * r.L[(size_t) i]; }
+            return std::make_tuple (d / std::max (1e-12, e2), allFinite (r.L), peakAbs (r.L));
+        };
+        const auto tape = hf (Model::Tape, 0), bbd = hf (Model::BBD, 0), dig = hf (Model::Digital80, 0);
+        CHECK (std::get<0> (bbd) < 0.5 * std::get<0> (tape), "BBD não escureceu (%f vs %f)", std::get<0> (bbd), std::get<0> (tape));
+        CHECK (std::get<0> (dig) < 0.95 * std::get<0> (tape), "Digital 80s não limitou a banda (%f vs %f)", std::get<0> (dig), std::get<0> (tape));
+        bool ok = true; float worst = 0;
+        for (auto m : { Model::Tape, Model::BBD, Model::MultiHead, Model::Cassette, Model::Digital80 })
+        {
+            const auto r = hf (m, 0.98f);
+            ok &= std::get<1> (r); worst = std::max (worst, std::get<2> (r));
+        }
+        CHECK (ok && worst < 2.5f, "modelos com feedback 98 %%: finito %d pico %f", (int) ok, worst);
+        std::printf ("[ok] modelos: energia de agudos BBD %.0f %% e Digital 80s %.0f %% da fita · feedback 98 %% estável (pico %.2f)\n",
+                     100 * std::get<0> (bbd) / std::get<0> (tape), 100 * std::get<0> (dig) / std::get<0> (tape), worst);
+    }
+    // B6) Multi-cabeça: 1+2+3 dá ecos a 1/3, 2/3 e 3/3 do tempo
+    {
+        Params p = wetOnly(); p.timeMsL = p.timeMsR = 300; p.model = Model::MultiHead; p.headsMask = 7;
+        Run r (p); r.go (24000, [] (int i, float& l, float& rr) { l = rr = i == 0 ? 1.0f : 0.0f; });
+        const int a = argmaxAbs (r.L, 3000, 6600), b = argmaxAbs (r.L, 8000, 11200), c = argmaxAbs (r.L, 12800, 16000);
+        const float pa = std::fabs (r.L[(size_t) a]), pb = std::fabs (r.L[(size_t) b]), pc = std::fabs (r.L[(size_t) c]);
+        CHECK (std::abs (a - 4800) < 60 && std::abs (b - 9600) < 60 && std::abs (c - 14400) < 60, "cabeças em %d %d %d", a, b, c);
+        CHECK (pa > 0.1f && pb > 0.1f && pc > 0.1f, "cabeças fracas %f %f %f", pa, pb, pc);
+        std::printf ("[ok] multi-cabeça: ecos a %d, %d e %d ms\n", a / 48, b / 48, c / 48);
+    }
+    // B7) Tape stop: os ecos param e voltam ao soltar
+    {
+        Params p = wetOnly(); p.timeMsL = p.timeMsR = 250; p.feedback = 0.5f;
+        Engine e; e.prepare (SR, 256); e.setParams (p);
+        std::vector<float> out; std::vector<float> l (256), r (256);
+        for (int b = 0; b < 750; ++b)
+        {
+            if (b == 250) { p.padStop = true; e.setParams (p); }
+            if (b == 500) { p.padStop = false; e.setParams (p); }
+            for (int i = 0; i < 256; ++i) l[(size_t) i] = r[(size_t) i] = 0.3f * std::sin (0.05f * (float) (b * 256 + i));
+            e.process (l.data(), r.data(), 256);
+            out.insert (out.end(), l.begin(), l.end());
+        }
+        const double before = energy (out, 200 * 256, 250 * 256), stopped = energy (out, 450 * 256, 500 * 256), after = energy (out, 700 * 256, 750 * 256);
+        CHECK (stopped < before * 0.01, "tape stop não parou (%f vs %f)", stopped, before);
+        CHECK (after > before * 0.5 && allFinite (out), "depois do stop os ecos não voltaram (%f vs %f)", after, before);
+        std::printf ("[ok] tape stop: %.0f dB enquanto premido, volta a %.1f dB do nível inicial\n", 10 * std::log10 (stopped / before + 1e-12), 10 * std::log10 (after / before));
+    }
+    // B8) Fuzz com as funções novas (aleatórias) — nunca NaN nem pico perigoso
+    {
+        std::mt19937 g (77); std::uniform_real_distribution<float> u (0, 1);
+        bool ok = true; float worst = 0;
+        Engine e; e.prepare (SR, 256);
+        std::vector<float> l (256), r (256);
+        for (int b = 0; b < 3000; ++b)
+        {
+            if (b % 25 == 0)
+            {
+                Params p; p.feedback = u (g) * 1.0f; p.mix = u (g); p.timeMsL = 5 + u (g) * 2000; p.timeMsR = 5 + u (g) * 2000;
+                p.throwAuto = u (g) > 0.5f; p.throwOnly = u (g) > 0.5f; p.throwNow = u (g) > 0.8f;
+                p.pitchSemi = -24 + 48 * u (g); p.pitchMix = u (g); p.reverse = u (g); p.model = (Model) (int) (u (g) * 4.99f);
+                p.headsMask = 1 + (int) (u (g) * 6.99f); p.padStop = u (g) > 0.85f; p.transition = (Transition) (int) (u (g) * 2.99f);
+                p.peakDb = 18 * u (g); p.compensate = u (g); p.tapeDrive = u (g); p.diffAmount = u (g); p.freeze = u (g) > 0.9f;
+                e.setParams (p);
+            }
+            for (int i = 0; i < 256; ++i) { l[(size_t) i] = (b % 40 < 15) ? 0.8f * (u (g) * 2 - 1) : 0.0f; r[(size_t) i] = l[(size_t) i]; }
+            e.process (l.data(), r.data(), 256);
+            for (int i = 0; i < 256; ++i) { ok &= std::isfinite (l[(size_t) i]) && std::isfinite (r[(size_t) i]); worst = std::max ({ worst, std::fabs (l[(size_t) i]), std::fabs (r[(size_t) i]) }); }
+        }
+        CHECK (ok && worst < 4.0f, "fuzz vaga B: finito %d pico %f", (int) ok, worst);
+        std::printf ("[ok] fuzz vaga B (throw, pitch, reverse, modelos, stop, stretch): pico %.2f\n", worst);
+    }
+
     // 14) Custo de CPU com todos os módulos activos
     {
         Params p; p.feedback = 0.7f; p.modDepthCents = 20; p.wow = 0.5f; p.diffAmount = 0.6f; p.dispSpreadMs = 15;

@@ -902,6 +902,81 @@ private:
     float dragDy = 0;
 };
 
+// ---------------------------------------------------------------- pad de performance (momentâneo)
+class PadButton : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    PadButton (DelexProcessor& p, int padIndex, const juce::String& nm, const juce::String& note, juce::Colour c, const juce::String& tip)
+        : proc (p), pad (padIndex), name (nm), noteName (note), colour (c) { setTooltip (tip); }
+    void mouseDown (const juce::MouseEvent&) override { proc.setPad (pad, true); repaint(); }
+    void mouseUp (const juce::MouseEvent&) override   { proc.setPad (pad, false); repaint(); }
+    void tick() { const bool a = proc.padActive (pad); if (a != lit) { lit = a; repaint(); } }
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat().reduced (1.0f);
+        g.setColour (lit ? colour : col::deep); g.fillRoundedRectangle (r, 10.0f);
+        g.setColour (lit ? colour.brighter (0.3f) : colour.withAlpha (0.55f)); g.drawRoundedRectangle (r, 10.0f, 1.6f);
+        label (g, name, r.withTrimmedBottom (r.getHeight() * 0.3f), 17.0f, W::Bold, lit ? col::bg : colour, juce::Justification::centred, 0.14f);
+        g.setColour (lit ? col::bg.withAlpha (0.7f) : col::muted); g.setFont (mono (10.5f));
+        g.drawText (noteName, r.removeFromBottom (r.getHeight() * 0.38f), juce::Justification::centred);
+    }
+private:
+    DelexProcessor& proc;
+    int pad;
+    juce::String name, noteName;
+    juce::Colour colour;
+    bool lit = false;
+};
+
+// ---------------------------------------------------------------- medidor de uma fonte de modulação (−1…+1)
+class SourceMeter : public juce::Component
+{
+public:
+    SourceMeter (DelexProcessor& p, int slotIndex) : proc (p), slot (slotIndex) { setInterceptsMouseClicks (false, false); }
+    void tick() { const float v = proc.modSourceView[slot].load(); if (std::abs (v - shown) > 0.004f) { shown = v; repaint(); } }
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat().reduced (0.5f);
+        g.setColour (col::deep); g.fillRoundedRectangle (r, 3.0f);
+        g.setColour (col::line2); g.drawRoundedRectangle (r, 3.0f, 1.0f);
+        const float cx = r.getCentreX(), x = cx + juce::jlimit (-1.0f, 1.0f, shown) * (r.getWidth() * 0.5f - 2.0f);
+        g.setColour (col::violet); g.fillRect (juce::Rectangle<float>::leftTopRightBottom (std::min (cx, x), r.getY() + 3, std::max (cx, x), r.getBottom() - 3));
+        g.setColour (col::axis); g.drawVerticalLine ((int) cx, r.getY(), r.getBottom());
+    }
+private:
+    DelexProcessor& proc;
+    int slot;
+    float shown = 0;
+};
+
+// ---------------------------------------------------------------- fader horizontal com valor (bipolar)
+class AmountSlider : public juce::Component
+{
+public:
+    AmountSlider (APVTS& s, const char* pid, juce::Colour accent, const juce::String& tip) : state (s), paramId (pid)
+    {
+        slider.setSliderStyle (juce::Slider::LinearHorizontal);
+        slider.setColour (juce::Slider::rotarySliderFillColourId, accent);
+        slider.setColour (juce::Slider::trackColourId, accent);
+        slider.setTooltip (tip + fineTip());
+        slider.onRightClick = [this] { showParamMenu (state, paramId, this); };
+        att = std::make_unique<APVTS::SliderAttachment> (s, pid, slider);
+        if (auto* p = s.getParameter (pid)) slider.setDoubleClickReturnValue (true, p->convertFrom0to1 (p->getDefaultValue()));
+        value.setFont (mono (12.0f)); value.setColour (juce::Label::textColourId, accent);
+        value.setJustificationType (juce::Justification::centredRight);
+        slider.onValueChange = [this] { value.setText (slider.getTextFromValue (slider.getValue()) + " %", juce::dontSendNotification); };
+        slider.onValueChange();
+        addAndMakeVisible (slider); addAndMakeVisible (value);
+    }
+    void resized() override { auto r = getLocalBounds(); value.setBounds (r.removeFromRight (56)); slider.setBounds (r); }
+    FineSlider slider;
+private:
+    APVTS& state;
+    juce::String paramId;
+    juce::Label value;
+    std::unique_ptr<APVTS::SliderAttachment> att;
+};
+
 // ---------------------------------------------------------------- barra de redução do ducker
 class GrBar : public juce::Component
 {

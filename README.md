@@ -11,6 +11,7 @@ Delay estéreo espacial em **VST3, AU e AAX (Pro Tools)**, interface em **Portug
 - **Delay duplo L/R** até 8 s por canal, sync com o BPM (1/1 a 1/128, pontuados e tercinas), tap tempo, modos **Dual / Ping-Pong / Mono**.
 - **Matriz espacial** (rotação ou reflexão unitária) aplicada a cada repetição: os ecos rodam no estéreo sem ganhar energia.
 - **Feedback moldável**: EQ no loop (low/high cut 6/12/24 dB, dois picos, low e high shelf, compensação), dispersão, difusão, saturação de fita (oversampling 2× opcional), digital grit, hiss — em qualquer das 120 ordens (lista arrastável, automatizável).
+- **Auto-Throw** (atira a última palavra de cada frase para o delay, sem automação), **pads** Throw / Freeze / Spin / Stop (rato ou MIDI), **Morph A↔B**, **matriz de modulação** (4 ligações), **pitch/shimmer**, **reverse**, transição **Stretch** e modelos **Fita / BBD / Multi-cabeça / Cassete / Digital 80s**.
 - **Sidechain** para o ducker e o gate, **MIDI learn** (clique direito), **escuta** Normal / Só Wet / Delta / Mono / Telemóvel / Club, **volume constante**, **bloqueio** de tempo / mix / dinâmica / EQ ao trocar de preset.
 - **Ducker**, **gate dos ecos** (efeito não linear), **Freeze** sem perdas, mudanças de tempo por **glide de fita** ou **crossfade**, modulação (seno/triângulo/aleatório, sync), wow & flutter.
 - **Vista SIMPLE** com 6 controlos (TIME, FEEDBACK, SPACE, TONE, CHARACTER, MIX) e **vista ADVANCED** com 6 abas.

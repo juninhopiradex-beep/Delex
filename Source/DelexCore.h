@@ -46,10 +46,11 @@ inline bool  finite (float v) noexcept { return std::isfinite (v); }
 //  Parâmetros do motor (valores finais, já com macros aplicadas pelo plugin)
 // -----------------------------------------------------------------------------
 enum class Routing    { Dual = 0, PingPong = 1, Mono = 2 };
-enum class Transition { TapeGlide = 0, Crossfade = 1 };
+enum class Transition { TapeGlide = 0, Crossfade = 1, Stretch = 2 };
 enum class ModShape   { Sine = 0, Triangle = 1, Random = 2 };
 enum class CutSlope   { dB6 = 0, dB12 = 1, dB24 = 2 };
 enum class Monitor    { Normal = 0, WetSolo = 1, Delta = 2, Mono = 3, Phone = 4, Club = 5 };
+enum class Model      { Tape = 0, BBD = 1, MultiHead = 2, Cassette = 3, Digital80 = 4 };
 
 // Ordem dos 5 módulos do loop: 0 Grit · 1 EQ · 2 Dispersão · 3 Difusão · 4 Fita.
 // As 4 primeiras permutações são as ordens das versões anteriores (compatibilidade).
@@ -131,6 +132,17 @@ struct Params
     bool  constLoudness = false;    // volume dos ecos independente do feedback
     float hiss = 0.0f;              // 0 … 1 (ruído de fita no sinal com efeito)
     bool  satHQ = false;            // saturação com oversampling 2×
+
+    // --- v1.0 vaga B
+    bool  throwAuto = false;        // detecta o fim das frases e atira a última palavra para o delay
+    bool  throwOnly = false;        // a entrada só entra no delay nos throws
+    bool  throwNow = false;         // throw manual (automatizável / pad)
+    float throwThreshDb = -30.0f, throwLenMs = 250.0f, throwGapMs = 120.0f;
+    float pitchSemi = 0.0f, pitchMix = 0.0f;   // pitch no loop (shimmer com +12)
+    float reverse = 0.0f;           // 0 … 1 (ecos invertidos)
+    Model model = Model::Tape;
+    int   headsMask = 7;            // multi-cabeça: bits 0..2 = cabeças 1, 2, 3
+    bool  padStop = false;          // tape stop (pad)
 };
 
 // -----------------------------------------------------------------------------
@@ -322,6 +334,9 @@ public:
     int  capacity() const noexcept { return mask - 4; }
 
     void push (float x) noexcept { buf[(size_t) w] = x; w = (w + 1) & mask; }
+    // amostra escrita há k amostras (0 = a última) e escrita retroactiva nessa posição
+    float ago (int k) const noexcept { return buf[(size_t) ((w - 1 - k) & mask)]; }
+    void  addAgo (int k, float v) noexcept { buf[(size_t) ((w - 1 - k) & mask)] += v; }
 
     // atraso em amostras (≥ 4) medido a partir da próxima escrita
     float readHermite (float delay) const noexcept
@@ -406,6 +421,8 @@ public:
         for (auto& d : dl) d.allocate (maxDelay);
         const int diffMax = (int) std::ceil (0.060 * sampleRate) + 8;
         for (auto& ch : diff) for (auto& s : ch) s.line.allocate (diffMax);
+        for (auto& h : hist) h.allocate ((int) std::ceil (2.2 * sampleRate));
+        for (auto& ps : pitchBuf) ps.allocate ((int) std::ceil (0.12 * sampleRate));
         reset();
     }
 
@@ -413,6 +430,16 @@ public:
     {
         for (auto& d : dl) d.clear();
         for (auto& ch : diff) for (auto& s : ch) s.line.clear();
+        for (auto& h : hist) h.clear();
+        for (auto& ps : pitchBuf) ps.clear();
+        thrEnv = 0; thrAbove = false; thrCount = thrBelow = 0; throwPrev = false;
+        pitchPh = 0; revPh[0] = revPh[1] = 0;
+        stopSpeed = 1; stopExtra = 0; stopGain = 1; stopping = false;
+        for (int c = 0; c < 2; ++c)
+        {
+            for (auto* f : { &bbdA[c], &bbdB[c], &casA[c], &casB[c], &casHP[c], &digA[c], &digB[c], &mhLP[c] }) f->reset();
+            lastDelay[c] = 0;
+        }
         for (int c = 0; c < 2; ++c)
         {
             for (auto& f : cutLo[c]) f.reset();
@@ -445,6 +472,7 @@ public:
     float gateGain() const noexcept        { return gateG; }         // 0 (fechado) … 1 (aberto)
     float loopLimiterDb() const noexcept   { return loopLimitDbOut; }
     int   resets() const noexcept          { return safetyResets; }
+    int   throwCount() const noexcept      { return throws; }     // cada throw (auto ou manual) incrementa
 
     // ------------------------------------------------------------ processo
     // keyL/keyR: sinal de sidechain (opcional) para ducker e gate; nulo = a própria entrada
@@ -494,13 +522,22 @@ public:
                 iL += mono * (sum - iL); iR += mono * (sum - iR);
             }
             const float inGate = 1.0f - frz;    // freeze: deixa de entrar sinal novo
-            iL *= preG * inGate;  iR *= preG * inGate;
+            iL *= preG; iR *= preG;
+            hist[0].push (iL); hist[1].push (iR);
+            autoThrow (dryL, dryR, frz > 0.5f);
+            const float sendS = sm.send.next (tgt.throwOnly && ! tgt.throwNow ? 0.0f : 1.0f);
+            iL *= inGate * sendS;  iR *= inGate * sendS;
 
             // --- leitura das linhas de atraso (com modulação)
             float modL = 0, modR = 0;
             modulation (modL, modR);
-            const float dL = readChannel (0, modL);
-            const float dR = readChannel (1, modR);
+            const float rg = tapeStop();
+            modL += stopExtra; modR += stopExtra;
+            float dL = readChannel (0, modL);
+            float dR = readChannel (1, modR);
+            if (mhW > 0.001f) { dL += mhW * (multiHead (0, modL) - dL); dR += mhW * (multiHead (1, modR) - dR); }
+            if (revW > 0.001f) { dL += revW * (readReverse (0, modL) - dL); dR += revW * (readReverse (1, modR) - dR); }
+            dL *= rg; dR *= rg;
 
             // --- matriz espacial (em ping-pong troca canais; em mono identidade)
             float yL = M.a * dL + M.b * dR, yR = M.c * dL + M.d * dR;
@@ -517,7 +554,10 @@ public:
             float xL = iL + fbFreeze * (balL + frz * (1.0f - balL)) * yL;
             float xR = iR + fbFreeze * (balR + frz * (1.0f - balR)) * yR;
 
-            const float procL = loopChain (0, xL), procR = loopChain (1, xR);
+            float procL = loopChain (0, xL), procR = loopChain (1, xR);
+            if (pitchW > 0.0005f) { procL += pitchW * (pitchShift (0, procL) - procL); procR += pitchW * (pitchShift (1, procR) - procR); }
+            else { pitchBuf[0].push (procL); pitchBuf[1].push (procR); }
+            procL = modelStage (0, procL); procR = modelStage (1, procR);
             xL += (1.0f - frz) * (procL - xL);    // em freeze, loop sem perdas
             xR += (1.0f - frz) * (procR - xR);
 
@@ -629,7 +669,7 @@ private:
     struct Smooth
     {
         OnePole fb, mix, freeze, bypass, wet, out, pre, inW, outW,
-                ma, mb, mc, md, ia, ib, ic, id, oa, ob, oc, od, balL, balR, pingpong, mono, makeup, loud;
+                ma, mb, mc, md, ia, ib, ic, id, oa, ob, oc, od, balL, balR, pingpong, mono, makeup, loud, send;
     } sm;
 
     // filtros smoothed a ritmo de controlo
@@ -700,6 +740,17 @@ private:
     // escuta
     SVF phoneHP[2], phoneLP[2], clubLP[2], clubLP2[2];
 
+    // vaga B
+    DelayLine hist[2], pitchBuf[2];
+    float thrEnv = 0; bool thrAbove = false, throwPrev = false; int thrCount = 0, thrBelow = 0, throws = 0;
+    float pitchRatio = 1, pitchPh = 0, pitchW = 0, revW = 0, mhW = 0, revPh[2] {};
+    float modelW[5] { 1, 0, 0, 0, 0 };
+    float lastDelay[2] {};
+    SVF bbdA[2], bbdB[2], casA[2], casB[2], casHP[2], digA[2], digB[2], mhLP[2];
+    LFO casLfo; float casDrift = 0;
+    float stopSpeed = 1, stopExtra = 0, stopGain = 1; bool stopping = false;
+    OnePole cPitch, cPitchMix, cRev, cMH, cMod[5];
+
     // ---------------------------------------------------------------- helpers
     static float dbToGainFast (float db) noexcept { return std::exp (db * 0.11512925f); }
 
@@ -730,6 +781,7 @@ private:
         snap (sm.mono, tgt.routing == Routing::Mono ? 1.0f : 0.0f);
         snap (sm.makeup, makeup);
         snap (sm.loud, loudComp);
+        snap (sm.send, tgt.throwOnly && ! tgt.throwNow ? 0.0f : 1.0f);
         for (int c = 0; c < 2; ++c)
         {
             const float t = targetDelay (c);   // já com as compensações (difusão, oversampling)
@@ -753,11 +805,13 @@ private:
                              &sm.ma, &sm.mb, &sm.mc, &sm.md, &sm.ia, &sm.ib, &sm.ic, &sm.id,
                              &sm.oa, &sm.ob, &sm.oc, &sm.od, &sm.balL, &sm.balR, &sm.pingpong, &sm.mono, &sm.makeup, &sm.loud })
                 s->setTime (25.0f, sr);
+            sm.send.setTime (4.0f, sr);
             sm.bypass.setTime (15.0f, sr);
             sm.freeze.setTime (60.0f, sr);
             for (auto* s : { &cLo, &cHi, &cPk, &cPkDb, &cPkQ, &cDispHz, &cDispQ, &cDispW, &cDiffAmt, &cDiffSpread,
                              &cWarm, &cDrive, &cBits, &cRate, &cGritMix, &cJit, &cModAmpL, &cModAmpR, &cModRate,
-                             &cLs, &cLsDb, &cHs, &cHsDb, &cPk2, &cPk2Db, &cPk2Q })
+                             &cLs, &cLsDb, &cHs, &cHsDb, &cPk2, &cPk2Db, &cPk2Q, &cPitch, &cPitchMix, &cRev, &cMH,
+                             &cMod[0], &cMod[1], &cMod[2], &cMod[3], &cMod[4] })
                 setT (*s, 30.0f);
             setT (cDiffSpread, 120.0f);
         }
@@ -875,6 +929,27 @@ private:
         for (int c = 0; c < 2; ++c) gritAA[c].setLowpass (std::min (0.45f * rate, 0.45f * sr), 0.70710678f, sr);
         gritActive = (bitsStep > 0.0f || gritInc < 0.999f) && gritW > 0.001f;
 
+        // --- vaga B: pitch, reverse, modelos
+        {
+            const float semi = v (cPitch, clampf (tgt.pitchSemi, -24.0f, 24.0f));
+            pitchRatio = std::pow (2.0f, semi / 12.0f);
+            pitchW = v (cPitchMix, clampf (tgt.pitchMix, 0.0f, 1.0f));
+            revW = v (cRev, clampf (tgt.reverse, 0.0f, 1.0f));
+            for (int m = 0; m < 5; ++m) modelW[m] = v (cMod[m], (int) tgt.model == m ? 1.0f : 0.0f);
+            mhW = v (cMH, tgt.model == Model::MultiHead ? 1.0f : 0.0f);
+            const float tms = 0.5f * (tgt.timeMsL + timeR());
+            const float bbdHz = clampf (9000.0f * std::sqrt (250.0f / std::max (20.0f, tms)), 2500.0f, 9000.0f);
+            const float nyq = 0.45f * sr;
+            for (int c = 0; c < 2; ++c)
+            {
+                bbdA[c].setLowpass (std::min (bbdHz, nyq), 0.54f, sr); bbdB[c].setLowpass (std::min (bbdHz, nyq), 1.31f, sr);
+                casA[c].setLowpass (std::min (7000.0f, nyq), 0.7071f, sr); casB[c].setLowpass (std::min (9000.0f, nyq), 0.6f, sr);
+                casHP[c].setHighpass (55.0f, 0.7071f, sr);
+                digA[c].setLowpass (std::min (12000.0f, nyq), 0.54f, sr); digB[c].setLowpass (std::min (12000.0f, nyq), 1.31f, sr);
+                mhLP[c].setLowpass (std::min (8500.0f, nyq), 0.7071f, sr);
+            }
+        }
+
         // --- modulação: amplitude (s) para obter o desvio de afinação pedido
         const float rateHz = v (cModRate, clampf (tgt.modRateHz, 0.01f, 20.0f));
         const float ratio = 1.0f - std::pow (2.0f, -clampf (tgt.modDepthCents, 0.0f, 100.0f) / 1200.0f);
@@ -882,7 +957,8 @@ private:
         ampS = std::min (ampS, 0.025f);
         modAmp = v (cModAmpL, ampS * sr);
         modRate = rateHz;
-        wowAmp = v (cModAmpR, tgt.wow * 0.0016f * sr);   // até ~1.6 ms (wow lento + flutter)
+        const float wowT = clampf (tgt.wow + (tgt.model == Model::Cassette ? 0.35f : 0.0f), 0.0f, 1.3f);   // cassete: wow extra
+        wowAmp = v (cModAmpR, wowT * 0.0016f * sr);   // até ~1.6 ms (wow lento + flutter)
     }
 
     bool gritActive = false;
@@ -939,20 +1015,26 @@ private:
             // glide de fita: o tempo desliza (com alteração de afinação), sem cliques
             h.glide += glideK * (target - h.glide);
             h.a = h.b = h.glide; h.fading = false; h.xf = h.onB ? 1.0f : 0.0f;
+            lastDelay[c] = h.glide;
             return dl[c].readHermite (h.glide + mod);
         }
 
-        // crossfade digital: duas cabeças de leitura, afinação preservada
-        h.glide = target;
+        // crossfade digital: duas cabeças de leitura, afinação preservada.
+        // Stretch: o tempo desliza como no glide, mas em pequenos passos com crossfade
+        // (a afinação não muda — o eco "estica").
+        const bool stretch = tgt.transition == Transition::Stretch;
+        if (stretch) h.glide += glideK * (target - h.glide); else h.glide = target;
+        const float want = h.glide;
         const float active = h.onB ? h.b : h.a;
-        if (! h.fading && std::fabs (target - active) > 0.5f)
+        lastDelay[c] = active;
+        if (! h.fading && std::fabs (want - active) > 0.5f)
         {
-            if (h.onB) h.a = target; else h.b = target;
+            if (h.onB) h.a = want; else h.b = want;
             h.fading = true;
         }
         if (! h.fading) return dl[c].readHermite (active + mod);
 
-        const float step = 1.0f / (0.045f * sr);   // 45 ms
+        const float step = 1.0f / ((stretch ? 0.022f : 0.045f) * sr);   // 22 ms por passo / 45 ms
         if (h.onB) { h.xf -= step; if (h.xf <= 0.0f) { h.xf = 0.0f; h.onB = false; h.fading = false; } }
         else       { h.xf += step; if (h.xf >= 1.0f) { h.xf = 1.0f; h.onB = true;  h.fading = false; } }
         const float w = 0.5f - 0.5f * std::cos (kPi * h.xf);
@@ -1054,6 +1136,137 @@ private:
             }
         }
         return x;
+    }
+
+    // ---------------------------------------------------------------- vaga B
+    // multi-cabeça (eco de fita com 3 cabeças a 1/3, 2/3 e 3/3 do tempo)
+    float multiHead (int c, float mod) const noexcept
+    {
+        float sum = 0; int n = 0;
+        for (int k = 1; k <= 3; ++k)
+            if ((tgt.headsMask >> (k - 1)) & 1) { sum += dl[c].readHermite (lastDelay[c] * (float) k / 3.0f + mod); ++n; }
+        return n > 0 ? sum / (float) n : 0.0f;
+    }
+
+    // eco invertido: dois grãos que lêem para trás (janela seno², soma constante)
+    float readReverse (int c, float mod) noexcept
+    {
+        const float cap = (float) dl[c].capacity() - 8.0f;
+        const float S = clampf (lastDelay[c], 0.02f * sr, 0.5f * (cap - 8.0f));
+        revPh[c] += 1.0f / S; if (revPh[c] >= 1.0f) revPh[c] -= 1.0f;
+        float out = 0;
+        for (int g = 0; g < 2; ++g)
+        {
+            float p = revPh[c] + 0.5f * (float) g; if (p >= 1.0f) p -= 1.0f;
+            const float w = std::sin (kPi * p);
+            out += w * w * dl[c].readHermite (4.0f + 2.0f * S * p + mod);
+        }
+        return out;
+    }
+
+    // pitch shifter de dois grãos (50 ms) dentro do loop: cada repetição sobe/desce de novo
+    float pitchShift (int c, float x) noexcept
+    {
+        pitchBuf[c].push (x);
+        const float W = 0.05f * sr;
+        if (c == 0) { pitchPh += (1.0f - pitchRatio) / W; pitchPh -= std::floor (pitchPh); }
+        float out = 0;
+        for (int g = 0; g < 2; ++g)
+        {
+            float p = pitchPh + 0.5f * (float) g; if (p >= 1.0f) p -= 1.0f;
+            const float w = std::sin (kPi * p);
+            out += w * w * pitchBuf[c].readHermite (4.0f + p * W);
+        }
+        return out;
+    }
+
+    // modelos de carácter (filtros sempre a correr; transição suave entre modelos)
+    float modelStage (int c, float x) noexcept
+    {
+        float y = x;
+        { const float f = bbdB[c].process (bbdA[c].process (x)); const float t = std::tanh (1.3f * f) / 1.3f; y += modelW[1] * (t - x); }
+        { const float f = mhLP[c].process (x); y += modelW[2] * (f - x); }
+        {
+            if (c == 0) casDrift = casLfo.random (0.7f / sr);
+            const float f = casHP[c].process (casB[c].process (casA[c].process (x)));
+            const float t = std::tanh (1.5f * f) / 1.5f * (1.0f + 0.06f * casDrift);
+            y += modelW[3] * (t - x);
+        }
+        {
+            const float f = digB[c].process (digA[c].process (x));
+            const float q = (2.0f / 4096.0f) * std::floor (f * 2048.0f + 0.5f);   // 12 bits
+            y += modelW[4] * (q - x);
+        }
+        return y;
+    }
+
+    // tape stop (pad): a fita abranda até parar; ao soltar, os ecos voltam com fade
+    float tapeStop() noexcept
+    {
+        if (tgt.padStop)
+        {
+            stopping = true;
+            stopSpeed = std::max (0.0f, stopSpeed - 1.0f / (0.8f * sr));
+            stopExtra = std::min (stopExtra + (1.0f - stopSpeed), 3.0f * sr);
+            stopGain = std::min (1.0f, stopGain + 1.0f / (0.01f * sr));
+        }
+        else if (stopping)
+        {
+            stopGain -= 1.0f / (0.02f * sr);
+            if (stopGain <= 0.0f) { stopGain = 0.0f; stopExtra = 0.0f; stopSpeed = 1.0f; stopping = false; }
+        }
+        else stopGain = std::min (1.0f, stopGain + 1.0f / (0.03f * sr));
+        return stopGain * (stopping ? std::sqrt (stopSpeed) : 1.0f);
+    }
+
+    // Auto-Throw: quando a frase acaba (nível abaixo do limiar durante GAP), escreve os últimos
+    // LEN ms da entrada directamente na linha de atraso, no sítio onde teriam entrado.
+    // O eco sai no tempo certo, como se o envio tivesse sido aberto antes da palavra.
+    void autoThrow (float dryL, float dryR, bool frozen) noexcept
+    {
+        const int lenS = std::max (16, (int) (tgt.throwLenMs * 0.001f * sr));
+        if (tgt.throwNow && ! throwPrev && ! frozen) retroThrow (1, lenS);    // throw manual: a última frase já
+        throwPrev = tgt.throwNow;
+        if (! tgt.throwAuto || frozen) { thrAbove = false; return; }
+        const float in = std::max (std::fabs (dryL), std::fabs (dryR));
+        thrEnv = in > thrEnv ? in : thrEnv * std::exp (-1.0f / (0.03f * sr));
+        if (gainToDbFast (thrEnv) > tgt.throwThreshDb)
+        {
+            if (! thrAbove) { thrAbove = true; thrCount = 0; }
+            ++thrCount; thrBelow = 0;
+        }
+        else if (thrAbove)
+        {
+            const int gapS = std::max (1, (int) (tgt.throwGapMs * 0.001f * sr));
+            if (++thrBelow >= gapS)
+            {
+                if (thrCount >= (int) (0.08f * sr)) retroThrow (gapS, std::min (lenS, thrCount + gapS / 2));
+                thrAbove = false;
+            }
+        }
+    }
+
+    void retroThrow (int startAgo, int len) noexcept
+    {
+        const int histCap = hist[0].capacity() - 4;
+        len = std::min (len, histCap - startAgo);
+        if (len <= 16) return;
+        // o eco tem de cair à frente da cabeça de leitura: se o tempo for curto, desloca a janela
+        const int D = (int) std::min (lastDelay[0], lastDelay[1]);
+        const int shift = std::max (0, startAgo + len - (D - 32));
+        const int fade = std::min (len / 4, (int) (0.005f * sr));
+        for (int j = 0; j < len; ++j)
+        {
+            const int k = startAgo + j;           // amostras atrás na história (0 = actual)
+            const int dk = k - 1 - shift;          // posição na linha de atraso (0 = última escrita)
+            if (dk < 0) continue;
+            float w = 1.0f;
+            if (j < fade) w = (float) j / (float) fade;
+            else if (j > len - fade) w = (float) (len - j) / (float) fade;
+            dl[0].addAgo (dk, w * hist[0].ago (k));
+            dl[1].addAgo (dk, w * hist[1].ago (k));
+        }
+        ++throws;
     }
 
     float safety (int c, float x) noexcept

@@ -73,6 +73,18 @@ public:
 
     std::atomic<bool> sidechainActive { false };
 
+    // pads de performance (0 Throw · 1 Freeze · 2 Spin · 3 Stop); MIDI: notas 36–39 (C1–D#1)
+    enum Pad { PadThrow = 0, PadFreeze = 1, PadSpin = 2, PadStop = 3 };
+    void setPad (int pad, bool down);
+    bool padActive (int pad) const { return ((uiPads.load() | midiPads.load()) >> pad) & 1; }
+    std::atomic<int> throwCounter { 0 };          // incrementa a cada throw (para a interface piscar)
+    std::atomic<float> modSourceView[4] {};       // valor actual de cada fonte da matriz (interface)
+
+    // morph A↔B: alvo = valores guardados no outro slot
+    void refreshMorphTarget();
+    // valores efectivos do último pedaço de áudio (depois de morph, pads e matriz) — para testes/medição
+    delex::Values lastChunkValues {};
+
     // tap tempo (chamado pela interface)
     void tap();
     double tappedBpm() const { return tapBpm; }
@@ -97,8 +109,20 @@ public:
 private:
     template <typename Sample> void processAny (juce::AudioBuffer<Sample>&);
     void handleMidi (const juce::MidiBuffer&);
-    void handleMidiNote (const juce::MidiMessage&) {}
-    delex::Values valuesForChunk (double bpm);
+    void handleMidiNote (const juce::MidiMessage&);
+    delex::Values valuesForChunk (double bpm, float inLevel, float keyLevel, int len);
+    std::atomic<int> uiPads { 0 }, midiPads { 0 };
+    // estado da matriz e dos pads (thread de áudio)
+    float mmPhase = 0, mmRandom = 0, mmRandomS = 0, envIn = 0, envKey = 0, spinDeg = 0, timeFactor = 1;
+    juce::Random mmRng;
+    // morph
+    juce::SpinLock morphLock;
+    delex::Values morphShared {}, morphLocal {};
+    std::atomic<int> morphVersion { 0 };
+    int morphSeen = -1;
+    bool morphHave = false, morphHaveShared = false;
+    std::array<bool, (size_t) delex::Values::count()> continuous {}, morphable {};
+    std::array<int, 32> modDestIdx {};
     static constexpr int kChunk = 32;
     std::array<std::atomic<int>, 128> ccMap {};
     std::atomic<int> learnTarget { -1 };

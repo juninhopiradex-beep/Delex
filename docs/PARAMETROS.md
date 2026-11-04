@@ -18,7 +18,7 @@ Gerada automaticamente a partir do código (tests/test_plugin.cpp). IDs estávei
 | `routing` | Routing | Dual / Ping-Pong / Mono | Dual | escolha | sim |
 | `r_ratio` | R Time Ratio | R x 0.25 … R x 2.00 | R x 1.00 | logarítmica (skew) | sim |
 | `fb_balance` | Feedback L/R | L 100 … R 100 | C | linear | sim |
-| `transition` | Time Transition | Tape Glide / Crossfade | Tape Glide | escolha | sim |
+| `transition` | Time Transition | Tape Glide / Crossfade / Stretch | Tape Glide | escolha | sim |
 | `glide` | Glide | 10 ms … 2.00 s | 250 ms | logarítmica (skew) | sim |
 | `rotation` | Rotation | -180.0° … 180.0° | 0.0° | linear | sim |
 | `rot_mode` | Matrix Mode | Rotation / Reflection | Rotation | escolha | sim |
@@ -77,3 +77,28 @@ Gerada automaticamente a partir do código (tests/test_plugin.cpp). IDs estávei
 | `peak2_q` | Peak 2 Q | 0.30 … 10.00 | 1.00 | logarítmica (skew) | sim |
 | `hiss` | Tape Hiss | 0 % … 100 % | 0 % | linear | sim |
 | `sat_hq` | Saturation HQ (2x) | off / on | Off | on/off | sim |
+| `throw_auto` | Auto Throw | off / on | Off | on/off | sim |
+| `throw_only` | Throw Only | off / on | Off | on/off | sim |
+| `throw_now` | Throw | off / on | Off | on/off | sim |
+| `throw_thresh` | Throw Threshold | -60.0 dB … 0.0 dB | -30.0 dB | linear | sim |
+| `throw_len` | Throw Length | 50 ms … 1.00 s | 250 ms | logarítmica (skew) | sim |
+| `throw_gap` | Throw Gap | 30 ms … 500 ms | 120 ms | logarítmica (skew) | sim |
+| `morph` | Morph A-B | 0 % … 100 % | 0 % | linear | sim |
+| `pitch` | Pitch | -24.0 st … +24.0 st | +12.0 st | linear | sim |
+| `pitch_mix` | Pitch Mix | 0 % … 100 % | 0 % | linear | sim |
+| `reverse` | Reverse | 0 % … 100 % | 0 % | linear | sim |
+| `model` | Model | Tape / BBD / Multi-Head / Cassette / Digital 80s | Tape | escolha | sim |
+| `heads` | Heads | 1 / 2 / 3 / 1+2 / 1+3 / 2+3 / 1+2+3 | 1+2+3 | escolha | sim |
+| `mm_rate` | Matrix LFO Rate | 0.02 Hz … 20.00 Hz | 0.50 Hz | logarítmica (skew) | sim |
+| `mm1_src` | Mod 1 Source | Off / LFO / Envelope / Random / Sidechain | Off | escolha | sim |
+| `mm1_dst` | Mod 1 Dest | Off / Time / Feedback / Mix / Rotation / Low Cut / High Cut / Peak Freq / Drive / Diffusion / Out Width / Pitch Mix / Reverse / Mod Depth / Wet Trim / Tone / Space | Off | escolha | sim |
+| `mm1_amt` | Mod 1 Amount | -100 … +100 | 0 | linear | sim |
+| `mm2_src` | Mod 2 Source | Off / LFO / Envelope / Random / Sidechain | Off | escolha | sim |
+| `mm2_dst` | Mod 2 Dest | Off / Time / Feedback / Mix / Rotation / Low Cut / High Cut / Peak Freq / Drive / Diffusion / Out Width / Pitch Mix / Reverse / Mod Depth / Wet Trim / Tone / Space | Off | escolha | sim |
+| `mm2_amt` | Mod 2 Amount | -100 … +100 | 0 | linear | sim |
+| `mm3_src` | Mod 3 Source | Off / LFO / Envelope / Random / Sidechain | Off | escolha | sim |
+| `mm3_dst` | Mod 3 Dest | Off / Time / Feedback / Mix / Rotation / Low Cut / High Cut / Peak Freq / Drive / Diffusion / Out Width / Pitch Mix / Reverse / Mod Depth / Wet Trim / Tone / Space | Off | escolha | sim |
+| `mm3_amt` | Mod 3 Amount | -100 … +100 | 0 | linear | sim |
+| `mm4_src` | Mod 4 Source | Off / LFO / Envelope / Random / Sidechain | Off | escolha | sim |
+| `mm4_dst` | Mod 4 Dest | Off / Time / Feedback / Mix / Rotation / Low Cut / High Cut / Peak Freq / Drive / Diffusion / Out Width / Pitch Mix / Reverse / Mod Depth / Wet Trim / Tone / Space | Off | escolha | sim |
+| `mm4_amt` | Mod 4 Amount | -100 … +100 | 0 | linear | sim |

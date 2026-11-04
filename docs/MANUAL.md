@@ -45,11 +45,13 @@ No DAW procura **DELEX by Piradex** (fabricante Piradex). Pode coexistir com o D
 
 | Aba | Controlos |
 |---|---|
-| **TIMING** | TIME (ms), divisão, SYNC, TAP, **R RATIO** (tempo do lado direito em relação ao esquerdo; 1.50 = 3:2), FEEDBACK, **FB L/R**, encaminhamento **Dual / Ping-Pong / Mono**, transição de tempo **Fita (glide)** ou **Crossfade** e GLIDE. |
+| **TIMING** | TIME (ms), divisão, SYNC, TAP, **R RATIO** (tempo do lado direito em relação ao esquerdo; 1.50 = 3:2), FEEDBACK, **FB L/R**, encaminhamento **Dual / Ping-Pong / Mono**, transição de tempo **Fita (glide)**, **Crossfade** ou **Stretch** (o tempo desliza ao ritmo do GLIDE sem mudar a afinação) e GLIDE. |
 | **SPACE** | **ROTATION** (−180°…+180°) com modo **Rotação/Reflexão**, IN/OUT ROT (±45°; 45° converte L/R em M/S), IN/OUT WIDTH (0–200 %), macro SPACE e **MONO-SAFE** (graves dos ecos em mono). A mini-vista mostra para onde vai cada lado a cada repetição. |
 | **FEEDBACK EQ** | Curva interactiva com 6 nós (LC, pico **1**, pico **2**, **LS**, **HS**, HC; arrasta; roda do rato nos picos muda o Q; duplo clique repõe). LOW CUT, SLOPE 6/12/24 dB, botões **PICO 1 / PICO 2 / SHELVES** para escolher que banda os knobs mostram, **COMPENSATE** (reduz o feedback na proporção do maior ganho positivo), HIGH CUT. **Ordem do loop**: arrasta os 5 módulos para qualquer posição (120 ordens, automatizável). |
 | **MOTION** | Modulação DEPTH (cents), RATE ou divisão sincronizada, OFFSET entre L e R, forma Seno/Triângulo/Aleatório, WOW; **Dispersão** (frequência, spread em ms); **Difusão** (amount, spread). |
-| **TEXTURE** | Fita: WARMTH, DRIVE. Digital grit: BIT DEPTH, SAMPLE RATE, JITTER, GRIT MIX. CHARACTER, PRE-DRIVE, **HISS** (ruído de fita só nos ecos) e **HQ 2x** (saturação com oversampling 2×: menos aliasing em drive alto; o atraso de 14 amostras é compensado no tempo). |
+| **TEXTURE** | Fita: WARMTH, DRIVE. Digital grit: BIT DEPTH, SAMPLE RATE, JITTER, GRIT MIX. CHARACTER, PRE-DRIVE, **HISS** (ruído de fita só nos ecos) e **HQ 2x** (saturação com oversampling 2×: menos aliasing em drive alto; o atraso de 14 amostras é compensado no tempo). **MODELO**: Fita · **BBD** (delay analógico de chips: mais escuro quanto mais longo o tempo) · **Multi-cabeça** (três cabeças a 1/3, 2/3 e ao tempo inteiro; escolhe as cabeças) · **Cassete** (banda estreita, wow extra) · **Digital 80s** (12 bits, banda até 12 kHz). |
+| **MOD** | **Matriz de modulação** com 4 ligações: fonte (LFO, envelope da entrada, aleatório, envelope do sidechain) → destino (tempo, feedback, mix, rotação, cortes, pico, drive, difusão, largura, pitch mix, reverse, profundidade da modulação, wet trim, tone, space) com quantidade ±100 %. A barra por baixo mostra a fonte a mexer. **MORPH A ↔ B**: desliza todos os parâmetros do slot actual para os do outro slot (botões e escolhas trocam a meio); automatizável. |
+| **PERFORM** | **AUTO-THROW**: detecta o fim de cada frase (THRESHOLD, PAUSA) e atira a última palavra (TAMANHO) para o delay, no tempo certo — sem automação. **SÓ THROWS**: a entrada só entra no delay nos throws. **Pads** THROW · FREEZE · SPIN · STOP (rato ou MIDI, notas C1–D#1). **PITCH / SHIMMER**: afinação dentro do loop (+12 = shimmer). **REVERSE**: ecos ao contrário. |
 | **UTILITIES** | Ducker (threshold, amount, attack, hold, release) com chave **INTERNO / SIDECHAIN**, **gate dos ecos** (GATE, threshold, hold, release: a cauda corta-se de repente quando a fonte pára — é o que dá o som "NonLin"), curva do MIX (linear / potência constante), **VOLUME CONST.**, WET TRIM, OUTPUT, tamanho da interface (75–200 %) e informação. |
 
 **Sidechain** — escolhe SIDECHAIN no ducker e envia outra pista para a entrada sidechain do DELEX no DAW (ex.: a voz principal a baixar os ecos do instrumental, ou o kick a abrir o gate). O indicador diz *SIDECHAIN A RECEBER* quando chega sinal do DAW; se disser *SEM SIDECHAIN NO DAW*, o ducker e o gate continuam a ouvir a própria entrada.
@@ -65,6 +67,11 @@ Pasta dos presets do utilizador:
 - Windows: `%APPDATA%\Piradex\DELEX\Presets`
 
 ## 5. Receitas rápidas
+
+- **Throw da última palavra, sem automação** — PERFORM: AUTO-THROW + SÓ THROWS, TAMANHO 250 ms, PAUSA 120 ms, THRESHOLD logo abaixo do nível da voz. Tempo 1/4 ou 1/8D, FEEDBACK 35 %, DUCK ligado.
+- **Shimmer** — PERFORM: PITCH +12, PITCH MIX 40 %; TEXTURE: difusão 60 %; FEEDBACK 70 %.
+- **Transição entre dois sons** — faz um delay curto em A e uma cauda enorme em B; volta a A e automatiza o MORPH de 0 a 100 % na passagem para o refrão.
+- **Ecos que respiram com a voz** — MOD: Envelope → MIX +40 %, ou Sidechain (voz) → FEEDBACK −50 %.
 
 - **Voz à frente** — preset *Voz à Frente 1/8*, MIX 100 % num envio, DUCK ligado.
 - **Afro House sincopado** — *Sincopa Dourada* ou estilo PING-PONG com TIME 1/4D.

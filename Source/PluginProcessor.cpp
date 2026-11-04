@@ -18,6 +18,16 @@ DelexProcessor::DelexProcessor()
     settings = std::make_unique<juce::PropertiesFile> (o);
     lockMask = settings->getIntValue ("lockMask", 0);
     for (auto& m : ccMap) m.store (-1);
+    for (int i = 0; i < Values::count(); ++i)
+    {
+        continuous[(size_t) i] = dynamic_cast<juce::AudioParameterFloat*> (raw.parameter (i)) != nullptr;
+        const juce::String pid (paramIds()[(size_t) i]);
+        morphable[(size_t) i] = ! (pid == id::morph || pid == id::bypass || pid == id::monitor || pid == id::key_src
+                                   || pid == id::freeze || pid == id::throw_now);
+    }
+    modDestIdx.fill (-1);
+    for (size_t q = 0; q < modDestinations().size() && q < modDestIdx.size(); ++q)
+        if (modDestinations()[q].pid != nullptr) modDestIdx[q] = RawParams::indexOf (modDestinations()[q].pid);
     lic::License::get();   // carrega o estado da licença na thread de mensagens
 }
 
@@ -76,6 +86,47 @@ void DelexProcessor::handleMidi (const juce::MidiBuffer& midi)
         }
         handleMidiNote (msg);
     }
+}
+
+// notas 36–39 (C1, C#1, D1, D#1): pads Throw, Freeze, Spin, Stop (enquanto a nota estiver premida)
+void DelexProcessor::handleMidiNote (const juce::MidiMessage& msg)
+{
+    if (! (msg.isNoteOn() || msg.isNoteOff())) return;
+    const int pad = msg.getNoteNumber() - 36;
+    if (pad < 0 || pad > 3) return;
+    int m = midiPads.load();
+    if (msg.isNoteOn()) m |= 1 << pad; else m &= ~(1 << pad);
+    midiPads.store (m);
+}
+
+void DelexProcessor::setPad (int pad, bool down)
+{
+    if (pad < 0 || pad > 3) return;
+    int m = uiPads.load();
+    if (down) m |= 1 << pad; else m &= ~(1 << pad);
+    uiPads.store (m);
+}
+
+// alvo do morph: os valores do slot que não está activo
+void DelexProcessor::refreshMorphTarget()
+{
+    const auto& other = slots[1 - slotIndex];
+    Values v = raw.load();
+    bool have = false;
+    if (other.isValid())
+    {
+        float* d = v.data();
+        for (int i = 0; i < Values::count(); ++i)
+        {
+            auto child = other.getChildWithProperty ("id", juce::String (paramIds()[(size_t) i]));
+            if (child.isValid()) { d[i] = (float) child.getProperty ("value"); have = true; }
+        }
+    }
+    {
+        const juce::SpinLock::ScopedLockType sl (morphLock);
+        morphShared = v; morphHaveShared = have;
+    }
+    ++morphVersion;
 }
 
 void DelexProcessor::startMidiLearn (const juce::String& pid) { learnTarget.store (delex::RawParams::indexOf (pid)); }
@@ -167,13 +218,28 @@ void DelexProcessor::processAny (juce::AudioBuffer<Sample>& buffer)
     }
 
     // processa em pedaços curtos: valores (e, nas próximas fases, modulação) actualizados a cada pedaço
+    const int pads = uiPads.load() | midiPads.load();
     for (int pos = 0; pos < n; pos += kChunk)
     {
         const int len = juce::jmin (kChunk, n - pos);
-        const Values v = valuesForChunk (bpm);
-        engine.setParams (toEngine (v, bpm, getSampleRate()));
+        float inLvl = 0, keyLvl = 0;
+        for (int i = pos; i < pos + len; ++i)
+        {
+            inLvl = juce::jmax (inLvl, std::abs (L[i]), std::abs (R[i]));
+            if (keyL != nullptr) keyLvl = juce::jmax (keyLvl, std::abs (keyL[i]), std::abs (keyR[i]));
+        }
+        const Values v = valuesForChunk (bpm, inLvl, keyLvl, len);
+        lastChunkValues = v;
+        auto ep = toEngine (v, bpm, getSampleRate());
+        ep.timeMsL = juce::jlimit (1.0f, 8000.0f, ep.timeMsL * timeFactor);
+        ep.timeMsR = juce::jlimit (1.0f, 8000.0f, ep.timeMsR * timeFactor);
+        if (pads & (1 << PadFreeze)) ep.freeze = true;
+        if (pads & (1 << PadThrow))  ep.throwNow = true;
+        ep.padStop = (pads & (1 << PadStop)) != 0;
+        engine.setParams (ep);
         engine.process (L + pos, R + pos, len, keyL != nullptr ? keyL + pos : nullptr, keyR != nullptr ? keyR + pos : nullptr);
     }
+    throwCounter.store (engine.throwCount());
 
     // medidores
     float pkOut[2] { 0, 0 };
@@ -213,10 +279,74 @@ void DelexProcessor::processAny (juce::AudioBuffer<Sample>& buffer)
     for (int c = numOut; c < buffer.getNumChannels(); ++c) buffer.clear (c, 0, n);
 }
 
-// Valores a usar num pedaço de áudio (ponto de entrada para morph, modulação e pads)
-delex::Values DelexProcessor::valuesForChunk (double /*bpm*/)
+// Valores a usar num pedaço de áudio: parâmetros → morph A↔B → pad Spin → matriz de modulação
+delex::Values DelexProcessor::valuesForChunk (double bpm, float inLevel, float keyLevel, int len)
 {
-    return raw.load();
+    Values v = raw.load();
+    float* d = v.data();
+    const float sr = (float) getSampleRate();
+    const float dt = (float) len / juce::jmax (1.0f, sr);
+
+    // --- morph: interpola na escala normalizada; escolhas e botões trocam a meio
+    if (morphVersion.load() != morphSeen)
+    {
+        const juce::SpinLock::ScopedTryLockType tl (morphLock);
+        if (tl.isLocked()) { morphLocal = morphShared; morphHave = morphHaveShared; morphSeen = morphVersion.load(); }
+    }
+    const float m = juce::jlimit (0.0f, 1.0f, v.morph * 0.01f);
+    if (m > 0.0005f && morphHave)
+    {
+        const float* t = morphLocal.data();
+        for (int i = 0; i < Values::count(); ++i)
+        {
+            if (! morphable[(size_t) i]) continue;
+            auto* prm = raw.parameter (i);
+            if (continuous[(size_t) i])
+            {
+                const float a = prm->convertTo0to1 (d[i]), b = prm->convertTo0to1 (t[i]);
+                d[i] = prm->convertFrom0to1 (a + m * (b - a));
+            }
+            else if (m >= 0.5f) d[i] = t[i];
+        }
+    }
+
+    // --- pad Spin: os ecos dão uma volta completa por compasso enquanto o pad estiver premido
+    const int pads = uiPads.load() | midiPads.load();
+    if (pads & (1 << PadSpin)) spinDeg = std::fmod (spinDeg + 360.0f * dt * (float) (juce::jmax (20.0, bpm) / 240.0), 360.0f);
+    else spinDeg = 0.0f;
+    if (spinDeg != 0.0f) { float r = v.rotation + spinDeg; while (r > 180.0f) r -= 360.0f; v.rotation = r; }
+
+    // --- fontes da matriz
+    auto follow = [dt] (float& env, float x) { const float c = x > env ? 1.0f - std::exp (-dt / 0.005f) : 1.0f - std::exp (-dt / 0.15f); env += c * (x - env); };
+    follow (envIn, inLevel); follow (envKey, keyLevel);
+    auto toUnit = [] (float g) { return juce::jlimit (0.0f, 1.0f, (20.0f * std::log10 (juce::jmax (g, 1.0e-6f)) + 60.0f) / 60.0f); };
+    mmPhase += v.mm_rate * dt;
+    if (mmPhase >= 1.0f) { mmPhase -= std::floor (mmPhase); mmRandom = mmRng.nextFloat() * 2.0f - 1.0f; }
+    mmRandomS += (1.0f - std::exp (-dt / 0.01f)) * (mmRandom - mmRandomS);
+    const float src[5] = { 0.0f, std::sin (juce::MathConstants<float>::twoPi * mmPhase), toUnit (envIn), mmRandomS, toUnit (envKey) };
+    for (int k = 0; k < 4; ++k) modSourceView[k].store (0.0f);
+
+    // --- matriz (4 ligações)
+    timeFactor = 1.0f;
+    float timeOct = 0.0f;
+    const float* slots4[4][3] = { { &v.mm1_src, &v.mm1_dst, &v.mm1_amt }, { &v.mm2_src, &v.mm2_dst, &v.mm2_amt },
+                                  { &v.mm3_src, &v.mm3_dst, &v.mm3_amt }, { &v.mm4_src, &v.mm4_dst, &v.mm4_amt } };
+    const auto& dests = modDestinations();
+    for (int k = 0; k < 4; ++k)
+    {
+        const int si = juce::jlimit (0, 4, (int) std::lround (*slots4[k][0]));
+        const int di = juce::jlimit (0, (int) dests.size() - 1, (int) std::lround (*slots4[k][1]));
+        const float amt = *slots4[k][2] * 0.01f;
+        modSourceView[k].store (src[si]);
+        if (si == 0 || di == 0 || std::abs (amt) < 1.0e-4f) continue;
+        if (di == 1) { timeOct += amt * src[si]; continue; }
+        const int pi = modDestIdx[(size_t) di];
+        if (pi < 0) continue;
+        auto* prm = raw.parameter (pi);
+        d[pi] = prm->convertFrom0to1 (juce::jlimit (0.0f, 1.0f, prm->convertTo0to1 (d[pi]) + amt * src[si]));
+    }
+    timeFactor = std::pow (2.0f, juce::jlimit (-1.0f, 1.0f, timeOct));
+    return v;
 }
 
 void DelexProcessor::pushScope (const float* l, const float* r, int n)
@@ -336,11 +466,13 @@ void DelexProcessor::selectSlot (int slot)
     if (slots[slot].isValid()) apvts.replaceState (slots[slot].createCopy());
     else slots[slot] = apvts.copyState();
     slotIndex = slot;
+    refreshMorphTarget();
 }
 
 void DelexProcessor::copyToOtherSlot()
 {
     slots[1 - slotIndex] = apvts.copyState();
+    refreshMorphTarget();
 }
 
 // ---------------------------------------------------------------------------- tap tempo
@@ -430,6 +562,7 @@ void DelexProcessor::setStateInformation (const void* data, int sizeInBytes)
     else if (root.hasType (apvts.state.getType()))
         apvts.replaceState (root);   // estado simples (compatibilidade)
     undo.clearUndoHistory();
+    refreshMorphTarget();
 }
 
 juce::AudioProcessorEditor* DelexProcessor::createEditor() { return new DelexEditor (*this); }
