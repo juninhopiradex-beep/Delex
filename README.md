@@ -29,11 +29,14 @@ Ao abrir pela primeira vez o plugin pede uma senha (master ou beta). As senhas *
 Página **Releases** deste repositório → `v1.0.0`:
 - `DELEX-by-Piradex-1.0.0-macOS.dmg` — instalador .pkg (VST3 + AU), Intel e Apple Silicon
 - `DELEX-by-Piradex-1.0.0-Windows-Setup.exe` — instalador VST3 (ou o `.zip` para instalação manual)
+- `DELEX-Manual-PT.pdf`, `DELEX-Manual-EN.pdf`, `DELEX-Curso.pdf`, `DELEX-Medicoes.pdf` e o pack `DELEX-Signature-Series-Exemplo.dlxpack`
 - `DELEX-by-Piradex-1.0.0-macOS-AAX-*.zip` e `...-Windows-AAX-*.zip` — AAX para Pro Tools (ver `installer/LEIA-ME-AAX.txt`). Enquanto não houver assinatura PACE os ficheiros chamam-se `...-nao-assinado.zip` e só abrem no Pro Tools Developer; com os segredos `PACE_*` configurados no GitHub o CI assina-os automaticamente.
 
 ## Documentação
 
-- [Manual do utilizador](docs/MANUAL.md)
+- [Manual do utilizador](docs/MANUAL.md) · [User manual (EN)](docs/MANUAL_EN.md) · PDFs em `docs/pdf` (também na release)
+- [Curso DELEX — o delay como instrumento](docs/CURSO.md)
+- [Medições e curvas](docs/MEDICOES.md) · [Measurements](docs/MEASUREMENTS.md)
 - [Arquitetura, algoritmos e testes](docs/ARQUITETURA.md)
 - [Matriz de parâmetros](docs/PARAMETROS.md)
 - [Checklist de testes em DAW](docs/TESTES_DAW.md)
