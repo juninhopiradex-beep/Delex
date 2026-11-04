@@ -246,7 +246,7 @@ jobs:
           ls -la dist
           TAG="v$VERSAO"
           gh release delete "$TAG" -y --cleanup-tag -R "$GITHUB_REPOSITORY" || true
-          FICHEIROS="$(find dist -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.zip' \)) $(find packs docs/pdf -maxdepth 1 -type f \( -name '*.dlxpack' -o -name '*.pdf' \) 2>/dev/null)"
+          FICHEIROS="$(find dist -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.zip' \)) $(find packs docs/pdf -maxdepth 1 -type f \( -name '*.dlxpack' -o -name '*.pdf' \) 2>/dev/null || true)"
           echo "$FICHEIROS"
           gh release create "$TAG" $FICHEIROS -R "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --title "DELEX by Piradex $VERSAO" \
