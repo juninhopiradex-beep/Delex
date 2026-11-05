@@ -79,7 +79,8 @@ No DAW procura **DELEX by Piradex** (fabricante Piradex).
 
 **Idioma**
 
-- O seletor **PT | EN** está no cabeçalho, em UTILITIES › INTERFACE e no ecrã da senha.
+- Carrega no botão **⚙ OPÇÕES** do cabeçalho e escolhe **Português** ou **English**. O mesmo menu muda o tamanho da interface.
+- Também tens o seletor **PT | EN** no cabeçalho, em UTILITIES › INTERFACE e no ecrã da senha.
 - A interface muda logo, sem fechar o plugin.
 - A escolha é partilhada por todos os plugins Piradex.
 - Os nomes dos parâmetros no DAW ficam sempre iguais, por isso as automações continuam a funcionar.

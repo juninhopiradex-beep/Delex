@@ -131,6 +131,7 @@ public:
     void resized() override
     {
         // cabeçalho
+        optBtn.setBounds (222, 12, 30, 28);
         headerLang.setBounds (262, 15, 70, 22);
         prevBtn.setBounds (350, 11, 30, 30);
         presetBtn.setBounds (386, 11, 270, 30);
@@ -171,12 +172,56 @@ private:
     IconButton favBtn  { "favorito", [this] (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c) { icons::star (g, r, c, favBtn.getToggleState()); } };
     IconButton undoBtn { "desfazer", [] (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c) { icons::undoArrow (g, r, c, false); } };
     IconButton redoBtn { "refazer",  [] (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c) { icons::undoArrow (g, r, c, true); } };
+    // OPÇÕES (engrenagem): idioma e tamanho da interface
+    IconButton optBtn { "opcoes", [] (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c)
+    {
+        const auto ctr = r.getCentre(); const float R = juce::jmin (r.getWidth(), r.getHeight()) * 0.30f;
+        juce::Path p;
+        for (int k = 0; k < 8; ++k)
+        {
+            const float a = juce::MathConstants<float>::twoPi * (float) k / 8.0f;
+            p.addRectangle (-R * 0.22f, -R * 1.45f, R * 0.44f, R * 0.6f);
+            p.applyTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::twoPi / 8.0f));
+            juce::ignoreUnused (a);
+        }
+        p.addEllipse (-R, -R, R * 2, R * 2);
+        p.applyTransform (juce::AffineTransform::translation (ctr));
+        g.setColour (c); g.fillPath (p);
+        g.setColour (col::panel); g.fillEllipse (juce::Rectangle<float> (R * 0.9f, R * 0.9f).withCentre (ctr));
+    } };
+    void showOptions()
+    {
+        namespace L = piradex::i18n;
+        juce::PopupMenu m;
+        m.addSectionHeader ("IDIOMA · LANGUAGE");
+        m.addItem (1, juce::String::fromUTF8 ("Português"), true, L::current() == L::Language::PT);
+        m.addItem (2, "English", true, L::current() == L::Language::EN);
+        m.addSeparator();
+        m.addSectionHeader (tr ("TAMANHO DA INTERFACE", "INTERFACE SIZE"));
+        static constexpr float scales[] = { 0.75f, 1.0f, 1.25f, 1.5f, 2.0f };
+        for (int i = 0; i < 5; ++i)
+            m.addItem (10 + i, String ((int) std::lround (scales[i] * 100)) + " %", true, std::abs (proc.uiScale - scales[i]) < 0.02f);
+        m.addSeparator();
+        m.addItem (20, tr ("Mais opções (UTILITIES)", "More options (UTILITIES)"));
+        juce::Component::SafePointer<DelexUI> safe (this);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&optBtn), [safe] (int r)
+        {
+            if (safe == nullptr || r == 0) return;
+            if (r == 1) L::set (L::Language::PT, true);
+            else if (r == 2) L::set (L::Language::EN, true);
+            else if (r >= 10 && r < 15) { if (safe->onScale) safe->onScale (scales[r - 10]); }
+            else if (r == 20) { safe->setView (true); safe->selectTab (10); }
+        });
+    }
     PresetNameButton presetBtn;
     juce::TextButton abA { "A" }, abB { "B" }, simpleBtn { "SIMPLE" }, advBtn { "ADVANCED" };
 
     void buildHeader()
     {
-        for (auto* b : { &prevBtn, &nextBtn, &undoBtn, &redoBtn }) addAndMakeVisible (b);
+        for (auto* b : { &prevBtn, &nextBtn, &undoBtn, &redoBtn, &optBtn }) addAndMakeVisible (b);
+        optBtn.outline = false;
+        optBtn.setTooltip (tr ("Opções: idioma (Português / English) e tamanho da interface", "Options: language (Português / English) and interface size"));
+        optBtn.onClick = [this] { showOptions(); };
         prevBtn.setTooltip (tr ("Preset anterior", "Previous preset")); nextBtn.setTooltip (tr ("Próximo preset", "Next preset"));
         undoBtn.setTooltip (tr ("Desfazer", "Undo")); redoBtn.setTooltip (tr ("Refazer", "Redo"));
         prevBtn.onClick = [this] { stepPreset (-1); };

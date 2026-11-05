@@ -258,6 +258,7 @@ static void testControls (DelexProcessor& p)
     // ---- 5) botões de acção
     auto& ui = *ed;
     // vistas e abas
+    check (findButton (ui, "opcoes") != nullptr, "botão OPÇÕES (idioma e tamanho) no cabeçalho");
     check (press (ui, "ADVANCED") && p.advancedView, "ADVANCED abre a vista avançada");
     const char* tabs[] = { "TIMING", "SPACE", "FEEDBACK EQ", "MOTION", "TEXTURE", "MOD", "PERFORM", "TAPS", "VOCAL", "LAB", "UTILITIES" };
     int tabOk = 0;
