@@ -377,7 +377,7 @@ static void testControls (DelexProcessor& p)
                 else std::printf ("    categoria %s: %d linhas (esperado %d)\n", cat.toRawUTF8(), list->getListBoxModel()->getNumRows(), perCat[cat]);
             check (catOk == delex::presetCategories().size(), "cada categoria do browser lista os seus presets", catOk, delex::presetCategories().size());
             press (ui, "Todos", 40);
-            check (list->getListBoxModel()->getNumRows() >= 282, "Todos mostra os 282 presets", list->getListBoxModel()->getNumRows(), 282);
+            check (list->getListBoxModel()->getNumRows() >= 482, "Todos mostra os 482 presets", list->getListBoxModel()->getNumRows(), 482);
             press (ui, "NonLin", 40);
             list->selectRow (3); pump (150);
             saveShot (*ed, "docs/ui_presets_nonlin.png");
@@ -449,8 +449,8 @@ int main()
             if (! fin || pk > 6.0f) { ++bad; std::printf ("    preset %d (%s): pico %.2f finito %d\n", i, p.getProgramName (i).toRawUTF8(), pk, (int) fin); }
             worst = juce::jmax (worst, pk);
         }
-        check (bad == 0, "282 presets: áudio finito e limitado", worst, 6.0);
-        check (p.getNumPrograms() == 282, "número de presets de fábrica", p.getNumPrograms(), 282);
+        check (bad == 0, "482 presets: áudio finito e limitado", worst, 6.0);
+        check (p.getNumPrograms() == 482, "número de presets de fábrica", p.getNumPrograms(), 482);
     }
 
     // 1b) presets: nomes únicos, categorias válidas, contagens pedidas, cada valor aplicado
@@ -473,6 +473,7 @@ int main()
             const auto kv = delex::parsePresetData (e.data);
             for (auto& k : kv.getAllKeys())
             {
+                if (delex::isTapDataKey (k)) continue;   // padrões de taps (verificados à parte)
                 auto* prm = p.apvts.getParameter (k);
                 if (prm == nullptr) { ++badKey; std::printf ("    %s: parâmetro desconhecido %s\n", e.name, k.toRawUTF8()); continue; }
                 const float now = prm->convertFrom0to1 (prm->getValue());
@@ -492,12 +493,34 @@ int main()
         check (badCat == 0, "todas as categorias existem no browser", badCat, 0);
         check (badKey == 0 && badVal == 0, "cada valor dos presets aplicado como escrito", badKey + badVal, 0);
         check (noEn == 0, "presets novos com texto em inglês", noEn, 0);
-        const std::pair<const char*, int> want[] = { { "Ambience", 20 }, { "Bass", 24 }, { "Drums", 5 + 33 }, { "FX", 4 }, { "Guitar", 5 + 13 },
-                                                     { "Mega", 8 }, { "NonLin", 16 }, { "Orkestra", 13 }, { "Synth", 5 + 36 }, { "VIP", 9 }, { "Vocals", 7 + 45 } };
+        // 221 do pedido anterior + 200 do guia "Delay FX · 200 presets profissionais"
+        const std::pair<const char*, int> want[] = { { "Ambience", 20 }, { "Bass", 24 }, { "Drums", 5 + 33 + 10 }, { "FX", 4 + 10 }, { "Guitar", 5 + 13 + 10 },
+                                                     { "Mega", 8 }, { "NonLin", 16 }, { "Orkestra", 13 }, { "Synth", 5 + 36 + 10 }, { "VIP", 9 }, { "Vocals", 7 + 45 + 10 },
+                                                     { "Trap", 6 + 10 }, { "Ambient", 5 + 10 }, { "Dub", 5 + 10 },
+                                                     { "Classic", 10 }, { "Stereo", 10 }, { "Vintage", 20 }, { "Rhythmic", 10 }, { "Afro", 10 }, { "EDM", 10 },
+                                                     { "Pitch", 10 }, { "Reverse", 10 }, { "Modulation", 10 }, { "Mixing", 10 }, { "Next Gen", 10 } };
         int badCount = 0;
         for (auto& w : want)
             if (perCat[w.first] != w.second) { ++badCount; std::printf ("    %s: %d presets (esperado %d)\n", w.first, perCat[w.first], w.second); }
-        check (badCount == 0, "contagem por categoria (221 novos)", badCount, 0);
+        check (badCount == 0, "contagem por categoria (421 novos)", badCount, 0);
+        // presets do guia com padrões de taps: o padrão chega ao estado
+        {
+            int tapOk = 0, tapN = 0;
+            for (int i = 0; i < (int) fp.size(); ++i)
+            {
+                const auto kv = delex::parsePresetData (fp[(size_t) i].data);
+                if (! (kv.containsKey ("taps") || kv.containsKey ("groove") || kv.containsKey ("sculpt"))) continue;
+                ++tapN;
+                p.loadFactoryPreset (i);
+                const auto pat = delex::taps::fromTree (p.apvts.state.getChildWithName (delex::taps::treeId()));
+                bool any = false;
+                for (auto& st : (kv.containsKey ("sculpt") ? std::vector<delex::taps::Step> (pat.sculpt.begin(), pat.sculpt.end())
+                                                            : std::vector<delex::taps::Step> (pat.multi.begin(), pat.multi.end())))
+                    any |= st.gain > 0.0f;
+                if (any) ++tapOk; else std::printf ("    %s: padrão de taps vazio\n", fp[(size_t) i].name);
+            }
+            check (tapN > 20 && tapOk == tapN, "presets com taps/grooves carregam o padrão", tapOk, tapN);
+        }
     }
 
     // 1c) NonLin: a cauda corta mesmo (gate) — silêncio depois do hold

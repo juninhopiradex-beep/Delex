@@ -6,6 +6,7 @@
 #pragma once
 
 #include "Params.h"
+#include "Taps.h"
 #include "i18n/PiradexLanguage.h"
 #include <cstring>
 
@@ -29,7 +30,10 @@ inline const juce::StringArray& presetCategories()
 {
     static const juce::StringArray c { "Vocals", "Afro House", "Kizomba", "Trap", "Drums", "Bass", "Guitar", "Synth",
                                        "Ambience", "Ambient", "Orkestra", "Mega", "NonLin", "VIP", "FX",
-                                       "Lo-Fi", "Dub", "Transition", "Master FX" };
+                                       "Lo-Fi", "Dub", "Transition", "Master FX",
+                                       // guia "200 presets profissionais"
+                                       "Classic", "Stereo", "Vintage", "Rhythmic", "Afro", "EDM", "Pitch", "Reverse",
+                                       "Modulation", "Mixing", "Next Gen" };
     return c;
 }
 
@@ -244,6 +248,7 @@ inline const std::vector<FactoryPreset>& factoryPresets()
           "div=1/8;feedback=20;diff_amount=60;tone=-40;space=50;mix=5;mono_safe=1" },
 
 #include "PresetsExtra.inc"
+        #include "PresetsGuia.inc"
     };
     return p;
 }
@@ -424,6 +429,45 @@ inline int lockGroupOf (const juce::String& pid)
     return 0;
 }
 
+// Padrões de taps nos dados de um preset (não são parâmetros):
+//   groove=Kizomba                       → um dos grooves (taps::grooves)
+//   taps=passo:ganho:pan[:tom[:harm]],…  → passos do Multi-Tap (os outros ficam vazios)
+//   sculpt=ganho:pan[:harm],…            → repetições 1, 2, 3… do Echo Sculpt
+inline bool isTapDataKey (const juce::String& k) { return k == "groove" || k == "taps" || k == "sculpt"; }
+inline void applyTapData (juce::AudioProcessorValueTreeState& s, const juce::StringPairArray& kv)
+{
+    if (kv.containsKey ("groove"))
+        for (auto& g : taps::grooves())
+            if (juce::String::fromUTF8 (g.name) == kv["groove"]) taps::replaceMulti (s.state, taps::grooveSteps (g), s.undoManager);
+    if (kv.containsKey ("taps"))
+    {
+        std::array<taps::Step, taps::kMultiSteps> m {};
+        for (auto& t : juce::StringArray::fromTokens (kv["taps"], ",", ""))
+        {
+            const auto f = juce::StringArray::fromTokens (t, ":", "");
+            const int i = f[0].getIntValue();
+            if (! juce::isPositiveAndBelow (i, taps::kMultiSteps) || i == 0) continue;
+            m[(size_t) i] = { f[1].getFloatValue(), f.size() > 2 ? f[2].getFloatValue() : 0.0f,
+                              f.size() > 3 ? f[3].getFloatValue() : 1.0f, f.size() > 4 ? f[4].getIntValue() : 0 };
+        }
+        taps::replaceMulti (s.state, m, s.undoManager);
+    }
+    if (kv.containsKey ("sculpt"))
+    {
+        const auto items = juce::StringArray::fromTokens (kv["sculpt"], ",", "");
+        for (int i = 0; i < taps::kSculptSteps; ++i)
+        {
+            taps::Step st;
+            if (i < items.size())
+            {
+                const auto f = juce::StringArray::fromTokens (items[i], ":", "");
+                st = { f[0].getFloatValue(), f.size() > 1 ? f[1].getFloatValue() : 0.0f, 1.0f - 0.04f * (float) i, f.size() > 2 ? f[2].getIntValue() : 0 };
+            }
+            taps::setStep (s.state, true, i, st, s.undoManager);
+        }
+    }
+}
+
 inline void applyData (juce::AudioProcessorValueTreeState& s, const char* data, bool isStyle, int lockMask = 0)
 {
     const auto kv = parsePresetData (data);
@@ -442,6 +486,7 @@ inline void applyData (juce::AudioProcessorValueTreeState& s, const char* data, 
             r->beginChangeGesture(); r->setValueNotifyingHost (r->getDefaultValue()); r->endChangeGesture();
         }
     }
+    if (! isStyle) applyTapData (s, kv);
 }
 
 } // namespace delex

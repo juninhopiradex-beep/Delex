@@ -394,7 +394,7 @@ O melhor resultado obtém-se com a **voz isolada** de uma referência, por exemp
 
 ## 7. Presets, packs e pesquisa
 
-**282 presets de fábrica** em 19 categorias:
+**482 presets de fábrica** em 30 categorias. Os 200 do guia *Delay FX · 200 presets profissionais* (Beatfreak Music) estão nas categorias Classic, Stereo, Vintage, Rhythmic, Afro, EDM, Pitch, Reverse, Modulation, Mixing e Next Gen, e também em Vocals, Trap, Guitar, Drums, Synth, Ambient, FX e Dub. As 19 categorias originais:
 
 | Categoria | Presets |
 |---|---|

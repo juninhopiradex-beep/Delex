@@ -36,8 +36,13 @@ public:
             b->setColour (juce::TextButton::buttonOnColourId, i == 0 ? col::gold : col::cyan);
             b->setColour (juce::TextButton::textColourOffId, i == 0 ? col::gold : col::text2);
             b->onClick = [this, i] { category = i; rebuild(); };
-            addAndMakeVisible (b);
+            catHolder.addAndMakeVisible (b);
         }
+
+        catView.setViewedComponent (&catHolder, false);
+        catView.setScrollBarsShown (true, false);
+        catView.setScrollBarThickness (6);
+        addAndMakeVisible (catView);
 
         list.setModel (this);
         list.setRowHeight (60);
@@ -202,9 +207,12 @@ public:
             lockLabelX = x - 70;
         }
         // 22 botões (favoritos, todos, 19 categorias, utilizador) cabem sempre na coluna
-        const int step = juce::jlimit (18, 31, (getHeight() - 124 - 6) / juce::jmax (1, catButtons.size()));
-        int y = 124;
-        for (auto* b : catButtons) { b->setBounds (8, y, 204, step - 2); y += step; }
+        // categorias numa coluna com scroll (há mais de 30)
+        const int step = 26;
+        catView.setBounds (0, 124, 216, getHeight() - 124 - 6);
+        catHolder.setSize (210, step * catButtons.size());
+        int y = 0;
+        for (auto* b : catButtons) { b->setBounds (8, y, 196, step - 2); y += step; }
         list.setBounds (229, 84, getWidth() - 229 - 250 - 12, getHeight() - 84 - 10);
         load.setBounds (getWidth() - 234, getHeight() - 54, 218, 38);
         importPack.setBounds (getWidth() - 234, getHeight() - 96, 106, 30);
@@ -295,6 +303,12 @@ private:
             std::stable_sort (entries.begin(), entries.end(), [] (const Entry& a, const Entry& b) { return a.score > b.score; });
         heading = q.isNotEmpty() ? tr ("Resultados para “", "Results for “") + search.getText().trim() + juce::String::fromUTF8 ("”")
                                  : catButtons[category]->getButtonText();
+        if (juce::isPositiveAndBelow (category, catButtons.size()))
+        {
+            const auto b = catButtons[category]->getBounds();
+            const auto vp = catView.getViewPosition();
+            if (b.getY() < vp.y || b.getBottom() > vp.y + catView.getHeight()) catView.setViewPosition (0, juce::jmax (0, b.getY() - 60));
+        }
         for (int i = 0; i < catButtons.size(); ++i)
         {
             catButtons[i]->setToggleState (q.isEmpty() && i == category, juce::dontSendNotification);
@@ -430,6 +444,8 @@ private:
     DelexProcessor& proc;
     juce::TextEditor search;
     juce::OwnedArray<juce::TextButton> catButtons, lockButtons;
+    juce::Component catHolder;
+    juce::Viewport catView;
     int lockLabelX = 400;
     juce::ListBox list;
     juce::TextButton load, saveAs, openFolder, importPack, exportPack;
