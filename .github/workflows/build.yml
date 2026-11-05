@@ -98,8 +98,13 @@ jobs:
           cp "$NOME $VERSAO.pkg" dmg/
           cp installer/LEIA-ME.txt dmg/
           cp -R "$ART/VST3/$NOME.vst3" "$ART/AU/$NOME.component" dmg/Plugins/
-          hdiutil create -volname "$NOME" -srcfolder dmg -ov -format UDZO "DELEX-by-Piradex-$VERSAO-macOS.dmg"
-          ls -la *.pkg *.dmg
+          # HFS+ (e não APFS): abre em todos os Macs desde o 10.13, incluindo o Catalina
+          hdiutil create -volname "$NOME" -srcfolder dmg -fs HFS+ -ov -format UDZO "DELEX-by-Piradex-$VERSAO-macOS.dmg"
+          hdiutil verify "DELEX-by-Piradex-$VERSAO-macOS.dmg"
+          # alternativa sem imagem de disco: o .pkg num .zip
+          mkdir -p pkgzip && cp "$NOME $VERSAO.pkg" installer/LEIA-ME.txt pkgzip/
+          ditto -c -k --sequesterRsrc pkgzip "DELEX-by-Piradex-$VERSAO-macOS-Instalador.zip"
+          ls -la *.pkg *.dmg *.zip
 
       # AAX: o Pro Tools normal só carrega plugins assinados pela PACE (wraptool).
       # Sem credenciais, sai um .zip "nao-assinado" (serve no Pro Tools Developer).
@@ -130,6 +135,7 @@ jobs:
           path: |
             DELEX-by-Piradex-*-macOS.dmg
             DELEX-by-Piradex-*-macOS-AAX-*.zip
+            DELEX-by-Piradex-*-macOS-Instalador.zip
             pluginval-macOS.log
 
   windows:

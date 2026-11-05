@@ -5,6 +5,11 @@ DELEX by Piradex — instalação (macOS 10.13 ou superior, Intel e Apple Silico
    clique com o botão direito (ou Ctrl+clique) no .pkg → Abrir → Abrir.
    (No macOS 13+: Definições do Sistema → Privacidade e Segurança → "Abrir na mesma".)
 
+   Se o Mac disser que o ficheiro "está danificado" (Catalina e anteriores, ficheiro
+   descarregado da internet): abra o Terminal e escreva
+     xattr -cr ~/Downloads/DELEX*
+   e abra de novo. O ficheiro não está estragado: o macOS só tirou a marca de quarentena.
+
 2) Siga o instalador (pede a senha de administrador do Mac).
 
 3) Abra o DAW e procure "DELEX by Piradex" (fabricante: Piradex).
