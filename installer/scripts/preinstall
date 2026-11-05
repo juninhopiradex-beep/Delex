@@ -1,0 +1,6 @@
+#!/bin/sh
+# Remove versões anteriores do DELEX (incluindo a antiga "2.0.0"), para o instalador
+# não manter o plugin velho por ter um número de versão maior.
+rm -rf "/Library/Audio/Plug-Ins/VST3/DELEX by Piradex.vst3"
+rm -rf "/Library/Audio/Plug-Ins/Components/DELEX by Piradex.component"
+exit 0

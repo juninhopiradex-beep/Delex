@@ -90,7 +90,14 @@ jobs:
           mkdir -p root/Library/Audio/Plug-Ins/VST3 root/Library/Audio/Plug-Ins/Components
           cp -R "$ART/VST3/$NOME.vst3" root/Library/Audio/Plug-Ins/VST3/
           cp -R "$ART/AU/$NOME.component" root/Library/Audio/Plug-Ins/Components/
-          pkgbuild --root root --identifier com.piradex.delex2.plugins --version "$VERSAO" \
+          # instala sempre os bundles (sem comparar versões com o que já existe)
+          pkgbuild --analyze --root root components.plist
+          plutil -replace 0.BundleIsVersionChecked -bool NO components.plist || true
+          plutil -replace 1.BundleIsVersionChecked -bool NO components.plist || true
+          plutil -replace 0.BundleIsRelocatable -bool NO components.plist || true
+          plutil -replace 1.BundleIsRelocatable -bool NO components.plist || true
+          chmod +x installer/scripts/*
+          pkgbuild --root root --component-plist components.plist --identifier com.piradex.delex2.plugins --version "$VERSAO" \
                    --install-location / --scripts installer/scripts delex-plugins.pkg
           productbuild --distribution installer/distribution.xml --resources installer \
                        --package-path . "$NOME $VERSAO.pkg"
