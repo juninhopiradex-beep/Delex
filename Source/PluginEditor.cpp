@@ -1271,6 +1271,8 @@ private:
     void timerCallback() override
     {
         lic::License::get().checkExpiry();
+        if (lic::License::get().claimOnlineRecheck())                // licença online: revalida no PCC 1x por dia
+            juce::Thread::launch ([] { lic::License::get().revalidateOnline(); });
         const bool locked = ! lic::License::get().isUnlocked();
         if (locked != login.isVisible())
         {

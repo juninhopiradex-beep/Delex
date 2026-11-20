@@ -1,6 +1,6 @@
 # DELEX by Piradex — User manual
 
-**Version 1.0.0** · Stereo spatial delay · VST3 / AU / AAX · macOS 10.13+ (Intel and Apple Silicon) and Windows 10/11
+**Version 1.1.0** · Stereo spatial delay · VST3 / AU / AAX · macOS 10.13+ (Intel and Apple Silicon) and Windows 10/11
 Creator and Developer: **Ricardo Amorim / Juninho Piradex** · www.beatfreakstudio.com · Support: juninhopiradex@hotmail.com
 
 ---
@@ -76,6 +76,7 @@ In your DAW, look for **DELEX by Piradex** (manufacturer Piradex).
 - With "Remember on this computer" on, it won't ask again.
 - While not signed in, DELEX passes the audio through untouched, so it never breaks your session.
 - UTILITIES › ABOUT shows the licence state and lets you **SIGN OUT**.
+- **Licence key** (`DLX-XXXX-XXXX-XXXX`): type it in the same field. The plugin checks it online with the Piradex licence server; it is then tied to this computer, works up to 14 days offline and is re-checked at most once a day. If you see "This licence is active on another computer", ask support to transfer it (juninhopiradex@hotmail.com).
 
 **Language**
 

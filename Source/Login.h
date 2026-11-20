@@ -110,9 +110,12 @@ private:
         {
             bool expired = false;
             const int idx = lic::License::matchPassword (pw, expired);   // lento de propósito
-            juce::MessageManager::callAsync ([safe, idx, expired, keep]
+            piradex::pcc::Check online;                                   // chave de licença: pergunta ao PCC
+            if (idx < 0 && ! expired) online = lic::License::checkOnline (pw);
+            juce::MessageManager::callAsync ([safe, idx, expired, keep, online]
             {
-                const auto r = lic::License::get().applyMatch (idx, expired, keep);
+                const auto r = online.outcome != piradex::pcc::Outcome::Disabled ? lic::License::get().applyOnline (online, keep)
+                                                                                 : lic::License::get().applyMatch (idx, expired, keep);
                 if (safe != nullptr) safe->finished (r);
             });
         });
@@ -131,7 +134,8 @@ private:
         }
         password.selectAll();
         message.setColour (juce::Label::textColourId, col::coral);
-        message.setText (r == lic::License::Result::Expired ? tr ("Esta senha beta já expirou.", "This beta password has expired.")
+        message.setText (r == lic::License::Result::Online  ? lic::License::get().onlineText()
+                       : r == lic::License::Result::Expired ? tr ("Esta senha beta já expirou.", "This beta password has expired.")
                                                             : juce::String (tr ("Senha incorreta.", "Incorrect password.")),
                          juce::dontSendNotification);
     }

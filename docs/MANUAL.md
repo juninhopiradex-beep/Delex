@@ -1,6 +1,6 @@
 # DELEX by Piradex — Manual do utilizador
 
-**Versão 1.0.0** · Delay espacial estéreo · VST3 / AU / AAX · macOS 10.13+ (Intel e Apple Silicon) e Windows 10/11
+**Versão 1.1.0** · Delay espacial estéreo · VST3 / AU / AAX · macOS 10.13+ (Intel e Apple Silicon) e Windows 10/11
 Criador e Desenvolvedor: **Ricardo Amorim / Juninho Piradex** · www.beatfreakstudio.com · Suporte: juninhopiradex@hotmail.com
 
 ---
@@ -76,6 +76,7 @@ No DAW procura **DELEX by Piradex** (fabricante Piradex).
 - Com "Lembrar neste computador" ligado, não volta a pedir.
 - Sem sessão iniciada, o DELEX deixa passar o áudio sem alterações, para não estragar a sessão.
 - Em UTILITIES › SOBRE vês o estado da licença e podes **TERMINAR SESSÃO**.
+- **Chave de licença** (`DLX-XXXX-XXXX-XXXX`): escreve-a no mesmo campo. O plugin confirma-a pela internet no servidor de licenças da Piradex; fica presa a este computador, funciona até 14 dias sem internet e é confirmada de novo, no máximo, uma vez por dia. Se aparecer "Esta licença está ativa noutro computador", pede a transferência ao suporte (juninhopiradex@hotmail.com).
 
 **Idioma**
 

@@ -1,4 +1,4 @@
-# DELEX by Piradex — v1.0.0 (delay espacial)
+# DELEX by Piradex — v1.1.0 (delay espacial)
 
 Delay estéreo espacial em **VST3, AU e AAX (Pro Tools)**, interface em **Português e Inglês**, para **macOS 10.13+ (Intel e Apple Silicon, num só instalador)** e **Windows 10/11 64 bits**.
 
@@ -24,13 +24,15 @@ Delay estéreo espacial em **VST3, AU e AAX (Pro Tools)**, interface em **Portug
 
 Ao abrir pela primeira vez o plugin pede uma senha (master ou beta). As senhas **não** estão no código — só o seu hash PBKDF2. Para criar mais senhas beta: `python3 tools/nova_senha_beta.py 2027-03-31`, colar a linha gerada em `kKeys` (`Source/License.cpp`) e fazer push.
 
+**Chaves de licença (PCC, desde a 1.1.0):** no mesmo campo aceita-se uma chave `DLX-XXXX-XXXX-XXXX`, validada online no PCC (Supabase). Criar chaves no SQL Editor do PCC: `select * from pcc_new_delex_license('Nome','email','País','venda', null);`. A chave em claro nunca sai do computador (vai `sha256(CHAVE|DELEX)`), a resposta é assinada (Ed25519) e verificada com a chave pública embebida no build. Código: `Source/pcc/`.
+
 ## Descarregar
 
-Página **Releases** deste repositório → `v1.0.0`:
-- `DELEX-by-Piradex-1.0.0-macOS.dmg` — instalador .pkg (VST3 + AU), Intel e Apple Silicon
-- `DELEX-by-Piradex-1.0.0-Windows-Setup.exe` — instalador VST3 (ou o `.zip` para instalação manual)
+Página **Releases** deste repositório → `v1.1.0`:
+- `DELEX-by-Piradex-1.1.0-macOS.dmg` — instalador .pkg (VST3 + AU), Intel e Apple Silicon
+- `DELEX-by-Piradex-1.1.0-Windows-Setup.exe` — instalador VST3 (ou o `.zip` para instalação manual)
 - `DELEX-Manual-PT.pdf`, `DELEX-Manual-EN.pdf`, `DELEX-Curso.pdf`, `DELEX-Medicoes.pdf` e o pack `DELEX-Signature-Series-Exemplo.dlxpack`
-- `DELEX-by-Piradex-1.0.0-macOS-AAX-*.zip` e `...-Windows-AAX-*.zip` — AAX para Pro Tools (ver `installer/LEIA-ME-AAX.txt`). Enquanto não houver assinatura PACE os ficheiros chamam-se `...-nao-assinado.zip` e só abrem no Pro Tools Developer; com os segredos `PACE_*` configurados no GitHub o CI assina-os automaticamente.
+- `DELEX-by-Piradex-1.1.0-macOS-AAX-*.zip` e `...-Windows-AAX-*.zip` — AAX para Pro Tools (ver `installer/LEIA-ME-AAX.txt`). Enquanto não houver assinatura PACE os ficheiros chamam-se `...-nao-assinado.zip` e só abrem no Pro Tools Developer; com os segredos `PACE_*` configurados no GitHub o CI assina-os automaticamente.
 
 ## Documentação
 

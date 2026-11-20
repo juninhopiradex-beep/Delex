@@ -1,4 +1,4 @@
-# DELEX by Piradex — checklist de testes em DAW (v1.0.0)
+# DELEX by Piradex — checklist de testes em DAW (v1.1.0)
 
 O CI já valida o plugin automaticamente (auval em Intel e Apple Silicon, pluginval, testes de DSP e de interface). Esta lista cobre o que só se vê dentro de um DAW real. Corre-a antes de cada lançamento, ou entrega-a aos beta testers. Marca cada linha com ✅ / ❌ e anota o DAW, a versão, o sistema e o computador.
 

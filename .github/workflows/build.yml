@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  VERSAO: "1.0.0"
+  VERSAO: "1.1.0"
   NOME: "DELEX by Piradex"
 
 jobs:
@@ -263,4 +263,4 @@ jobs:
           echo "$FICHEIROS"
           gh release create "$TAG" $FICHEIROS -R "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --title "DELEX by Piradex $VERSAO" \
-            --notes "Delay espacial estéreo. Interface em Português e Inglês (seletor PT | EN). AAX (Pro Tools): ficheiros *-AAX-*.zip, ver LEIA-ME-AAX.txt. macOS 10.13+ (um só instalador para Macs Intel antigos e Apple Silicon): DELEX-by-Piradex-$VERSAO-macOS.dmg · Windows 10/11 64 bits: DELEX-by-Piradex-$VERSAO-Windows-Setup.exe (ou o .zip para instalação manual)."
+            --notes "Novo na 1.1.0: chaves de licença validadas online (PCC); a master e as senhas beta continuam a funcionar como antes. Delay espacial estéreo. Interface em Português e Inglês (seletor PT | EN). AAX (Pro Tools): ficheiros *-AAX-*.zip, ver LEIA-ME-AAX.txt. macOS 10.13+ (um só instalador para Macs Intel antigos e Apple Silicon): DELEX-by-Piradex-$VERSAO-macOS.dmg · Windows 10/11 64 bits: DELEX-by-Piradex-$VERSAO-Windows-Setup.exe (ou o .zip para instalação manual)."
