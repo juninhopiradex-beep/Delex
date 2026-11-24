@@ -1,4 +1,4 @@
-# DELEX by Piradex — v1.1.0 (delay espacial)
+# DELEX by Piradex — v1.2.0 (delay espacial)
 
 Delay estéreo espacial em **VST3, AU e AAX (Pro Tools)**, interface em **Português e Inglês**, para **macOS 10.13+ (Intel e Apple Silicon, num só instalador)** e **Windows 10/11 64 bits**.
 
@@ -19,6 +19,12 @@ Delay estéreo espacial em **VST3, AU e AAX (Pro Tools)**, interface em **Portug
 - **Vista SIMPLE** com 6 controlos (TIME, FEEDBACK, SPACE, TONE, CHARACTER, MIX) e **vista ADVANCED** com 6 abas.
 - **Idioma PT | EN**: seletor no cabeçalho, na página Utilities (INTERFACE) e no ecrã da senha. Na primeira vez segue o idioma do sistema; a escolha é partilhada por todos os plugins Piradex. Os nomes dos parâmetros no DAW não mudam (as automações continuam a funcionar).
 - **482 presets** de fábrica em 30 categorias (inclui os 200 do guia *Delay FX · 200 presets profissionais*) (Vocals, Afro House, Kizomba, Trap, Drums, Bass, Guitar, Synth, Ambience, Ambient, Orkestra, Mega, NonLin, VIP, FX, Lo-Fi, Dub, Transition, Master FX), com subcategorias, pesquisa, favoritos, presets do utilizador, A/B, desfazer/refazer, interface 75–200 %.
+
+## Novidades na 1.2.0
+
+- O DELEX v2 passa a ser a versão oficial no ramo `main` (o DELEX 1.0 antigo foi retirado).
+- As chaves `DLX-…` da versão 1.0, que estavam publicadas no repositório, **deixaram de funcionar**: o DELEX v2 só aceita a senha master, as senhas beta (hash PBKDF2) e chaves criadas no PCC.
+- O GitHub Actions compila também em cada push para `main`.
 
 ## Senha
 

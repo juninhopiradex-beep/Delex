@@ -2,11 +2,11 @@ name: Build DELEX by Piradex v2 (macOS universal + Windows)
 
 on:
   push:
-    branches: [delex-v2]
+    branches: [main, delex-v2]
   workflow_dispatch:
 
 env:
-  VERSAO: "1.1.0"
+  VERSAO: "1.2.0"
   NOME: "DELEX by Piradex"
 
 jobs:
