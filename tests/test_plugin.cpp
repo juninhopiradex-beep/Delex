@@ -443,7 +443,7 @@ int main()
         namespace pc = piradex::pcc;
         check (pc::enabled(), "PCC ligado no build (URL + chave pública)");
         check (pc::looksLikeKey ("DLX-AB12-CD34-EF56") && pc::looksLikeKey (" dlx-ab12-cd34-ef56 "), "formato de chave reconhecido (espaços e minúsculas aceites)");
-        check (! pc::looksLikeKey ("#Tecnico01") && ! pc::looksLikeKey ("DLX-AB12-CD34"), "senhas normais não vão ao PCC");
+        check (! pc::looksLikeKey ("#SenhaNormal1") && ! pc::looksLikeKey ("DLX-AB12-CD34"), "senhas normais não vão ao PCC");
         check (pq::pcc::keyHashOf (pc::normaliseKey ("dlx-ab12-cd34-ef56").toStdString(), "DELEX") == "c5d326ef3729d7169ebedfd5f0d12086f7a06f576cafda6d6b17c1a413844721", "hash da chave igual ao que o servidor calcula");
         {
             const auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("pcc_test.settings");

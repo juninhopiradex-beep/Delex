@@ -11,8 +11,8 @@ namespace lic
 static const KeyEntry kKeys[] =
 {
     { "master", Kind::Master,
-      "12607153739b3f7713e22bdbf4aa2fdd",
-      "f9ffe1bd3a17d9a19cd2cc261aa7f1dbeb66a20d9e2c0dd601a649d5fd7e9a70", 0, 0, 0 },
+      "a906561eae51147967e70c9745f160a4",
+      "7fa6ac7b42585747e2f50555efc9e6f9a34a5ee26f35f7f264bf0635ad14f76d", 0, 0, 0 },
 
     { "beta-01", Kind::Trial,
       "cacf2056043050af0f5540bd7a388e38",
