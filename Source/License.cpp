@@ -11,18 +11,12 @@ namespace lic
 static const KeyEntry kKeys[] =
 {
     { "master", Kind::Master,
-      "a906561eae51147967e70c9745f160a4",
-      "7fa6ac7b42585747e2f50555efc9e6f9a34a5ee26f35f7f264bf0635ad14f76d", 0, 0, 0 },
+      "243de54f32cb913130310c17d4a48ec6",
+      "edf979d017b55eb781bc604645f84b372bd99b9001203fb0146ca63e2ccf46c4", 0, 0, 0 },
 
     { "beta-01", Kind::Trial,
-      "cacf2056043050af0f5540bd7a388e38",
-      "0290c979f3e806f1ed826a82751f01eb5850a9186f7afaeafd70caca0c8dbd0e", 2026, 12, 31 },
-    { "beta-02", Kind::Trial,
-      "69dfa09de99eeb574aa42fe01df3c402",
-      "86e770635cc45f5cc32e6fd0058b183a25179e52bc1693e04a09b821a76eafb1", 2026, 12, 31 },
-    { "beta-03", Kind::Trial,
-      "8da57f0631572d1b5a6f93f3dc1e453b",
-      "2a7731e73694cdef66e2f7024d9554366b9ca6012d009bd05a6b89e84e4d91ea", 2026, 12, 31 },
+      "1d0f1ae16c27cfa3d65b4c27df776037",
+      "ba346e63fd7df55a25dc34fb746d9bc3217bbab496ac77185dc956784537fbbb", 2026, 12, 31 },
 };
 
 // ---------------------------------------------------------------------------
