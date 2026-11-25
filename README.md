@@ -1,6 +1,12 @@
 # DELEX by Piradex — v1.2.0 (delay espacial)
 
-Delay estéreo espacial em **VST3, AU e AAX (Pro Tools)**, interface em **Português e Inglês**, para **macOS 10.13+ (Intel e Apple Silicon, num só instalador)** e **Windows 10/11 64 bits**.
+Delay estéreo espacial em **VST3, AU e AAX (Pro Tools)**, interface em **Português e Inglês**, para **macOS 10.13+ (Intel e Apple Silicon, com um instalador para cada tipo de Mac)** e **Windows 10/11 64 bits**.
+
+> **Versão atual: 1.0.2** (todos os plugins Piradex passaram a ter a mesma numeração; as versões abaixo de "Histórico" são da numeração antiga).
+>
+> * **Login:** obrigatório desde a 1.0.1 — senha master, senha beta (válida até 31/12/2026) ou chave de licença validada online no PCC. Sem sessão, o áudio passa intacto.
+> * **Instaladores (loja www.beatfreakstudio.com/loja):** Mac Apple Silicon (`…-macOS-AppleSilicon.pkg`), Mac Intel com macOS 10.13 ou mais recente (`…-macOS-Intel-macOS10.13.pkg`), Windows (`…-Windows-Setup.exe`) e AAX para Pro Tools (`…-AAX-*.zip`, ver LEIA-ME-AAX.txt).
+> * **Criador e desenvolvedor:** Ricardo Amorim / Juninho Piradex.
 
 | Português | English |
 |---|---|
@@ -20,7 +26,7 @@ Delay estéreo espacial em **VST3, AU e AAX (Pro Tools)**, interface em **Portug
 - **Idioma PT | EN**: seletor no cabeçalho, na página Utilities (INTERFACE) e no ecrã da senha. Na primeira vez segue o idioma do sistema; a escolha é partilhada por todos os plugins Piradex. Os nomes dos parâmetros no DAW não mudam (as automações continuam a funcionar).
 - **482 presets** de fábrica em 30 categorias (inclui os 200 do guia *Delay FX · 200 presets profissionais*) (Vocals, Afro House, Kizomba, Trap, Drums, Bass, Guitar, Synth, Ambience, Ambient, Orkestra, Mega, NonLin, VIP, FX, Lo-Fi, Dub, Transition, Master FX), com subcategorias, pesquisa, favoritos, presets do utilizador, A/B, desfazer/refazer, interface 75–200 %.
 
-## Novidades na 1.2.0
+## Histórico — 1.2.0 (numeração antiga)
 
 - O DELEX v2 passa a ser a versão oficial no ramo `main` (o DELEX 1.0 antigo foi retirado).
 - As chaves `DLX-…` da versão 1.0, que estavam publicadas no repositório, **deixaram de funcionar**: o DELEX v2 só aceita a senha master, as senhas beta (hash PBKDF2) e chaves criadas no PCC.
@@ -34,11 +40,11 @@ Ao abrir pela primeira vez o plugin pede uma senha (master ou beta). As senhas *
 
 ## Descarregar
 
-Página **Releases** deste repositório → `v1.1.0`:
-- `DELEX-by-Piradex-1.1.0-macOS.dmg` — instalador .pkg (VST3 + AU), Intel e Apple Silicon
-- `DELEX-by-Piradex-1.1.0-Windows-Setup.exe` — instalador VST3 (ou o `.zip` para instalação manual)
+Página **Releases** deste repositório → `v1.0.1`:
+- `DELEX-by-Piradex-1.0.1-macOS-AppleSilicon.pkg` / `…-macOS-Intel-macOS10.13.pkg` — instaladores .pkg (VST3 + AU), um para Apple Silicon e outro para Intel
+- `DELEX-by-Piradex-1.0.1-Windows-Setup.exe` — instalador VST3 (ou o `.zip` para instalação manual)
 - `DELEX-Manual-PT.pdf`, `DELEX-Manual-EN.pdf`, `DELEX-Curso.pdf`, `DELEX-Medicoes.pdf` e o pack `DELEX-Signature-Series-Exemplo.dlxpack`
-- `DELEX-by-Piradex-1.1.0-macOS-AAX-*.zip` e `...-Windows-AAX-*.zip` — AAX para Pro Tools (ver `installer/LEIA-ME-AAX.txt`). Enquanto não houver assinatura PACE os ficheiros chamam-se `...-nao-assinado.zip` e só abrem no Pro Tools Developer; com os segredos `PACE_*` configurados no GitHub o CI assina-os automaticamente.
+- `DELEX-by-Piradex-1.0.1-macOS-AAX-*.zip` e `...-Windows-AAX-*.zip` — AAX para Pro Tools (ver `installer/LEIA-ME-AAX.txt`). Enquanto não houver assinatura PACE os ficheiros chamam-se `...-nao-assinado.zip` e só abrem no Pro Tools Developer; com os segredos `PACE_*` configurados no GitHub o CI assina-os automaticamente.
 
 ## Documentação
 

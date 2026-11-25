@@ -1,8 +1,8 @@
 ; Instalador Windows do DELEX by Piradex (Inno Setup 6)
-; Compilado no GitHub Actions: ISCC /DVersao=1.0.1 installer\windows.iss
+; Compilado no GitHub Actions: ISCC /DVersao=1.0.2 installer\windows.iss
 
 #ifndef Versao
-  #define Versao "1.0.1"
+  #define Versao "1.0.2"
 #endif
 
 [Setup]
