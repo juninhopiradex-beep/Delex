@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "i18n/PiradexLanguage.h"
 #include "PluginEditor.h"
 
 using namespace delex;
@@ -10,6 +11,7 @@ DelexProcessor::DelexProcessor()
                         .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)),
       apvts (*this, &undo, "DELEX", createLayout())
 {
+    piradex::i18n::registerPluginTable();   // 1.0.2: traducoes PT / EN / ZH
     juce::PropertiesFile::Options o;
     o.applicationName = "DELEX";
     o.folderName = "Piradex";

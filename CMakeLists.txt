@@ -59,7 +59,8 @@ target_sources(Delex PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/License.cpp
-    Source/i18n/PiradexLanguage.cpp)
+    Source/i18n/PiradexLanguage.cpp
+    Source/i18n/ZhTable.cpp)
 
 target_include_directories(Delex PRIVATE Source)
 

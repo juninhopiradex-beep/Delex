@@ -70,6 +70,7 @@ class DelexUI : public juce::Component, private juce::Timer
 {
 public:
     std::function<void (float)> onScale;
+    std::function<void()> onShowWelcome;
 
     explicit DelexUI (DelexProcessor& p) : proc (p), s (p.apvts)
     {
@@ -77,14 +78,7 @@ public:
         buildSimple();
         buildBottom();
         buildAdvanced();
-        headerLang.accent = col::coral;
-        headerLang.background = col::deep;
-        headerLang.outline = col::line2;
-        headerLang.text = col::text;
-        headerLang.textDim = col::muted;
-        headerLang.hoverFill = col::panel2;
-        headerLang.fontHeight = 11.0f;
-        addAndMakeVisible (headerLang);
+
         login.onUnlocked = [this] { login.setVisible (false); repaint(); };
         addChildComponent (login);
         setSize (DelexEditor::kW, DelexEditor::kH);
@@ -132,7 +126,6 @@ public:
     {
         // cabeçalho
         optBtn.setBounds (222, 12, 30, 28);
-        headerLang.setBounds (262, 15, 70, 22);
         prevBtn.setBounds (350, 11, 30, 30);
         presetBtn.setBounds (386, 11, 270, 30);
         nextBtn.setBounds (662, 11, 30, 30);
@@ -196,6 +189,7 @@ private:
         m.addSectionHeader ("IDIOMA · LANGUAGE");
         m.addItem (1, juce::String::fromUTF8 ("Português"), true, L::current() == L::Language::PT);
         m.addItem (2, "English", true, L::current() == L::Language::EN);
+        m.addItem (3, L::languageName (L::Language::ZH), true, L::current() == L::Language::ZH);   // 1.0.2: mandarim
         m.addSeparator();
         m.addSectionHeader (tr ("TAMANHO DA INTERFACE", "INTERFACE SIZE"));
         static constexpr float scales[] = { 0.75f, 1.0f, 1.25f, 1.5f, 2.0f };
@@ -203,12 +197,15 @@ private:
             m.addItem (10 + i, String ((int) std::lround (scales[i] * 100)) + " %", true, std::abs (proc.uiScale - scales[i]) < 0.02f);
         m.addSeparator();
         m.addItem (20, tr ("Mais opções (UTILITIES)", "More options (UTILITIES)"));
+        m.addItem (21, piradex::i18n::tr ("Tutorial e novidades", "Tutorial and what's new", "\xe6\x95\x99\xe7\xa8\x8b\xe4\xb8\x8e\xe6\x96\xb0\xe5\x8a\x9f\xe8\x83\xbd"));
         juce::Component::SafePointer<DelexUI> safe (this);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&optBtn), [safe] (int r)
         {
             if (safe == nullptr || r == 0) return;
             if (r == 1) L::set (L::Language::PT, true);
             else if (r == 2) L::set (L::Language::EN, true);
+            else if (r == 3) L::set (L::Language::ZH, true);
+            else if (r == 21) { if (safe->onShowWelcome) safe->onShowWelcome(); }
             else if (r >= 10 && r < 15) { if (safe->onScale) safe->onScale (scales[r - 10]); }
             else if (r == 20) { safe->setView (true); safe->selectTab (10); }
         });
@@ -220,7 +217,7 @@ private:
     {
         for (auto* b : { &prevBtn, &nextBtn, &undoBtn, &redoBtn, &optBtn }) addAndMakeVisible (b);
         optBtn.outline = false;
-        optBtn.setTooltip (tr ("Opções: idioma (Português / English) e tamanho da interface", "Options: language (Português / English) and interface size"));
+        optBtn.setTooltip (tr ("Opções: idioma (Português / English / 中文) e tamanho da interface", "Options: language (Português / English / 中文) and interface size"));
         optBtn.onClick = [this] { showOptions(); };
         prevBtn.setTooltip (tr ("Preset anterior", "Previous preset")); nextBtn.setTooltip (tr ("Próximo preset", "Next preset"));
         undoBtn.setTooltip (tr ("Desfazer", "Undo")); redoBtn.setTooltip (tr ("Refazer", "Redo"));
@@ -1250,7 +1247,6 @@ private:
     }
 
     // ------------------------------------------------------------------ senha
-    piradex::i18n::LanguageSwitch headerLang;
     LoginOverlay login;
 
     // ------------------------------------------------------------------ browser
@@ -1350,6 +1346,7 @@ DelexEditor::DelexEditor (DelexProcessor& p) : AudioProcessorEditor (&p), proc (
     }
     const float sc = juce::jlimit (0.75f, 2.0f, proc.uiScale);
     setSize ((int) std::lround (kW * sc), (int) std::lround (kH * sc));
+    if (piradex::kit::Welcome::shouldShow ("delex", JucePlugin_VersionString)) showWelcome();
 }
 
 void DelexEditor::buildUi()
@@ -1358,7 +1355,34 @@ void DelexEditor::buildUi()
     ui = std::make_unique<delex::ui::DelexUI> (proc);
     ++uiBuilds;
     ui->onScale = [this] (float sc) { setScale (sc); };
+    ui->onShowWelcome = [this] { showWelcome(); };
     addAndMakeVisible (*ui);
+    if (welcome != nullptr && welcome->isVisible()) welcome->toFront (true);
+}
+
+void DelexEditor::showWelcome()
+{
+    using W = piradex::kit::WelcomeItem;
+    welcome = std::make_unique<piradex::kit::Welcome> ("DELEX", delex::ui::col::coral, JucePlugin_VersionString, std::vector<W> {
+        W { "SIMPLE e ADVANCED", "SIMPLE and ADVANCED",
+            "SIMPLE: seis controlos grandes e os estilos em pastilhas. ADVANCED: todas as linhas de atraso, modula\xc3\xa7\xc3\xa3o, filtros e efeitos.",
+            "SIMPLE: six big controls and the styles as pills. ADVANCED: every delay line, modulation, filters and effects." },
+        W { "Echo Field", "Echo Field",
+            "Cada repeti\xc3\xa7\xc3\xa3o aparece no est\xc3\xa9reo e no tempo. O medidor de fase diz se a mistura continua segura em mono.",
+            "Every repeat is shown in stereo and in time. The phase meter tells you if the mix is still mono-safe." },
+        W { "Throw Map e Delay Match", "Throw Map and Delay Match",
+            "Throw Map: lan\xc3\xa7" "a ecos s\xc3\xb3 nas palavras que escolher. Delay Match: copia o tempo e o car\xc3\xa1" "cter de um delay de refer\xc3\xaa" "ncia.",
+            "Throw Map: throws echoes only on the words you pick. Delay Match: copies the timing and character of a reference delay." },
+        W { "482 presets", "482 presets",
+            "Pesquisa, favoritos, categorias por estilo (Kizomba, Afro House, Trap...) e A/B para comparar.",
+            "Search, favourites, categories by style (Kizomba, Afro House, Trap...) and A/B to compare." },
+        W { "Novo na 1.0.2", "New in 1.0.2",
+            "Idioma PT / EN / \xe4\xb8\xad\xe6\x96\x87 na roda dentada, novo ecr\xc3\xa3 de entrada Piradex e este guia nas 3 primeiras aberturas de cada vers\xc3\xa3o.",
+            "PT / EN / \xe4\xb8\xad\xe6\x96\x87 language in the gear menu, new Piradex sign-in screen and this guide on the first 3 launches of each version." } });
+    welcome->onClose = [safe = juce::Component::SafePointer<DelexEditor> (this)] { if (safe != nullptr) juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->welcome.reset(); }); };
+    addAndMakeVisible (*welcome);
+    welcome->setBounds (getLocalBounds());
+    welcome->toFront (true);
 }
 
 DelexEditor::~DelexEditor()
@@ -1382,4 +1406,5 @@ void DelexEditor::resized()
     proc.uiScale = s;
     ui->setTransform (juce::AffineTransform::scale (s));
     ui->setBounds (0, 0, kW, kH);
+    if (welcome != nullptr) welcome->setBounds (getLocalBounds());
 }
